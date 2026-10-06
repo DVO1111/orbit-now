@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as A from 'astronomy-engine';
 import type { SimClock } from '../lib/clock';
 import type { DescribeContext } from '../lib/details';
-import { GROUP_BY_ID, type Satellite } from '../lib/satellites';
+import { GROUP_BY_ID, periodMinutes, propagateSat, type Satellite } from '../lib/satellites';
 import {
   CONSTELLATIONS, CONSTELLATION_LINES, STARS, bodiesInSky, brightnessWords, compassPoint, horizonRotation, pointingHint,
   predictPasses, satellitesInSky, skyDarkness, starColor, toAltAz, type AltAz, type BodyInSky, type Pass, type SatInSky,
@@ -11,6 +12,27 @@ import { InfoPanel } from '../components/InfoPanel';
 import { makeProjector, type Projector, type View } from './projection';
 import { hasOrientation, requestOrientationPermission, watchPointing } from './orientation';
 import { skyDetails } from './skyDetails';
+import {
+  RADIUS_KM, angleBetween, bodyVector, drawDisc, drawMoonDisc, drawSaturn, drawStation, formatAngleRate, formatDuration,
+  galileanMoons, localFrame, telescopeFov,
+} from './telescope';
+
+interface Telescope {
+  target: string;
+  /** fixed: the view holds still and the target drifts out (an undriven telescope); follow: the view tracks it. */
+  mode: 'fixed' | 'follow';
+  /** In fixed mode, re-aim once the target has left the view. */
+  auto: boolean;
+}
+
+const SCOPE_TARGETS: { id: string; label: string }[] = [
+  { id: 'moon', label: 'Moon' },
+  { id: 'sat:25544', label: 'ISS' },
+  { id: 'jupiter', label: 'Jupiter' },
+  { id: 'saturn', label: 'Saturn' },
+  { id: 'venus', label: 'Venus' },
+  { id: 'mars', label: 'Mars' },
+];
 
 const CITIES: SkyLocation[] = [
   { label: 'Lagos', lat: 6.524, lon: 3.379, heightM: 40 },
@@ -79,13 +101,14 @@ export function SkyView({ clock, sats, ctx, showList }: Props) {
   const [lines, setLines] = useState(true);
   const [arMsg, setArMsg] = useState('');
   const [centerName, setCenterName] = useState('');
+  const [telescope, setTelescope] = useState<Telescope | null>(null);
   const [, setTick] = useState(0);
 
   // Mutable state the draw loop reads without re-rendering React.
   const view = useRef({ az: 180, alt: 35, fov: 100, roll: 0 });
   const hits = useRef<Hit[]>([]);
-  const st = useRef({ loc, selected, lines, camera, sats });
-  st.current = { loc, selected, lines, camera, sats };
+  const st = useRef({ loc, selected, lines, camera, sats, telescope });
+  st.current = { loc, selected, lines, camera, sats, telescope };
 
   const chooseLocation = useCallback((l: SkyLocation) => {
     setLoc(l);
@@ -193,10 +216,11 @@ export function SkyView({ clock, sats, ctx, showList }: Props) {
     let lastBodies = -Infinity;
     let lastSats = -Infinity;
     let lastCenter = '';
+    let offSince = 0;
 
     const draw = () => {
       raf = requestAnimationFrame(draw);
-      const { loc, selected, lines, camera, sats } = st.current;
+      const { loc, selected, lines, camera, sats, telescope } = st.current;
       const dpr = Math.min(window.devicePixelRatio, 2);
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
@@ -220,9 +244,30 @@ export function SkyView({ clock, sats, ctx, showList }: Props) {
       }
       const sun = bodies.find((b) => b.id === 'sun');
       const darkness = skyDarkness(sun?.alt ?? -90);
+      const rot = horizonRotation(date, loc);
+
+      // Telescope: follow the target, or hold still and re-aim once it has drifted out.
+      if (telescope) {
+        const t = selectedAltAz(telescope.target, bodies, satPos, rot);
+        if (t && telescope.mode === 'follow') {
+          view.current.az = t.az;
+          view.current.alt = t.alt;
+          offSince = 0;
+        } else if (t && telescope.auto && clock.rate !== 0 && !clock.paused) {
+          const halfDiag = (view.current.fov / 2) * Math.hypot(1, w / h);
+          if (angleBetween(t, view.current) > halfDiag * 1.02) {
+            if (!offSince) offSince = nowMs;
+            else if (nowMs - offSince > 1200) {
+              Object.assign(view.current, upstreamCentre(telescope.target, date, loc, sats, view.current.fov, clock.rate));
+              offSince = 0;
+            }
+          } else offSince = 0;
+        }
+      }
+
       const v: View = { ...view.current, width: w, height: h };
       const project = makeProjector(v);
-      const rot = horizonRotation(date, loc);
+      const pxPerRad = h / 2 / (2 * Math.tan((v.fov * Math.PI) / 180 / 4));
       const scaleBoost = Math.max(1, 90 / v.fov) ** 0.5;
       const newHits: Hit[] = [];
 
@@ -282,7 +327,7 @@ export function SkyView({ clock, sats, ctx, showList }: Props) {
         if (p.alt < -1) continue;
         const q = project(p.alt, p.az);
         if (!q || q.x < -10 || q.y < -10 || q.x > w + 10 || q.y > h + 10) continue;
-        const r = Math.max(0.6, (3.4 - 0.55 * s.mag) * scaleBoost * 0.8);
+        const r = Math.max(0.6, (3.4 - 0.55 * s.mag) * Math.min(scaleBoost, 2.2) * 0.8);
         ctx2d.globalAlpha = starAlpha * Math.min(1, 1.4 - s.mag / 6);
         ctx2d.fillStyle = starColor(s.bv);
         ctx2d.beginPath();
@@ -304,6 +349,31 @@ export function SkyView({ clock, sats, ctx, showList }: Props) {
         const isSel = selected === `sat:${s.sat.id}`;
         const visible = s.sunlit && darkness !== 'day';
         const color = GROUP_BY_ID.get(s.sat.group)?.color ?? '#fff';
+        // Through the telescope, draw a station at its real size (ISS is ~109 m across).
+        const lengthPx = (0.109 / s.rangeKm) * pxPerRad;
+        if (s.sat.group === 'stations' && lengthPx > 8) {
+          const next = satellitesInSky([s.sat], new Date(date.getTime() + 1000), loc, -90)[0];
+          const q2 = next ? project(next.alt, next.az) : null;
+          const heading = q2 ? Math.atan2(q2.y - q.y, q2.x - q.x) : 0;
+          drawStation(ctx2d, q.x, q.y, lengthPx, heading, visible ? '#f8fafc' : '#94a3b8');
+          ctx2d.fillStyle = visible ? color : '#94a3b8';
+          ctx2d.fillText(shortSatName(s.sat.name), q.x + lengthPx / 2 + 6, q.y - 5);
+          newHits.push({ id: `sat:${s.sat.id}`, x: q.x, y: q.y, r: lengthPx / 2, name: s.sat.name });
+          continue;
+        }
+        if (telescope?.target === `sat:${s.sat.id}`) {
+          // The telescope's target: always draw it clearly (sunlit or not).
+          ctx2d.fillStyle = visible ? '#fffbeb' : '#e2e8f0';
+          ctx2d.shadowColor = visible ? '#facc15' : '#94a3b8';
+          ctx2d.shadowBlur = 12;
+          ctx2d.beginPath();
+          ctx2d.arc(q.x, q.y, 4.5, 0, Math.PI * 2);
+          ctx2d.fill();
+          ctx2d.shadowBlur = 0;
+          ctx2d.fillText(shortSatName(s.sat.name), q.x + 8, q.y - 6);
+          newHits.push({ id: `sat:${s.sat.id}`, x: q.x, y: q.y, r: 8, name: s.sat.name });
+          continue;
+        }
         ctx2d.globalAlpha = visible ? 1 : 0.45;
         ctx2d.fillStyle = visible ? color : '#64748b';
         ctx2d.save();
@@ -349,8 +419,49 @@ export function SkyView({ clock, sats, ctx, showList }: Props) {
         if (b.alt < -1) continue;
         const q = project(b.alt, b.az);
         if (!q || q.z < -0.3) continue;
-        const r =
-          b.id === 'sun' ? 12 * scaleBoost : b.id === 'moon' ? 10 * scaleBoost : Math.max(3, (4.5 - 0.5 * b.mag) * scaleBoost * 0.8);
+        const marker =
+          b.id === 'sun' ? 12 * Math.min(scaleBoost, 2) : b.id === 'moon' ? 10 * Math.min(scaleBoost, 2) : Math.max(3, (4.5 - 0.5 * b.mag) * Math.min(scaleBoost, 2.2) * 0.8);
+        let r = marker;
+        // Zoomed in: draw the real disc (true apparent size, orientation, phase, rings, moons).
+        if (v.fov < 25) {
+          const bv = bodyVector(b.body, date, loc);
+          const angR = Math.asin(Math.min(1, RADIUS_KM[b.id] / bv.distKm));
+          const frame = localFrame(bv.dir, rot, project);
+          if (frame && angR * frame.pxPerRad > marker) {
+            r = angR * frame.pxPerRad;
+            if (b.id === 'moon') drawMoonDisc(ctx2d, date, loc, rot, project);
+            else if (b.id === 'saturn') drawSaturn(ctx2d, frame, angR, bv.dir, date, b.color);
+            else {
+              const n = b.id === 'jupiter' ? A.RotationAxis(A.Body.Jupiter, date).north : null;
+              drawDisc(ctx2d, frame, angR, b.color, n ? { x: n.x, y: n.y, z: n.z } : null, date);
+              if (b.id === 'venus' || b.id === 'mercury') drawMoonShadow(ctx2d, frame.center.x, frame.center.y, r, b.phase, sun, b, project);
+            }
+            if (b.id === 'sun') {
+              ctx2d.fillStyle = 'rgba(255, 210, 120, 0.15)';
+              ctx2d.beginPath();
+              ctx2d.arc(frame.center.x, frame.center.y, r * 1.08, 0, Math.PI * 2);
+              ctx2d.fill();
+            }
+            ctx2d.fillStyle = b.color;
+            ctx2d.fillText(b.name, frame.center.x + r + 4, frame.center.y + 4);
+            newHits.push({ id: b.id, x: frame.center.x, y: frame.center.y, r: r + 6, name: b.name });
+            if (b.id === 'jupiter') {
+              ctx2d.font = '11px system-ui, sans-serif';
+              for (const m of galileanMoons(date, bv.vecAU)) {
+                const p = toAltAz(rot, m.dir);
+                const mq = project(p.alt, p.az);
+                if (!mq) continue;
+                ctx2d.fillStyle = '#f1f5f9';
+                ctx2d.beginPath();
+                ctx2d.arc(mq.x, mq.y, 2.2, 0, Math.PI * 2);
+                ctx2d.fill();
+                ctx2d.fillText(m.name, mq.x - 10, mq.y - 7);
+              }
+              ctx2d.font = '600 12px system-ui, sans-serif';
+            }
+            continue;
+          }
+        }
         if (b.id === 'sun') {
           const g = ctx2d.createRadialGradient(q.x, q.y, r * 0.5, q.x, q.y, r * 4);
           g.addColorStop(0, 'rgba(255, 220, 120, 0.6)');
@@ -490,7 +601,7 @@ export function SkyView({ clock, sats, ctx, showList }: Props) {
       downAt = null;
     };
     const zoom = (f: number) => {
-      view.current.fov = Math.max(15, Math.min(150, view.current.fov * f));
+      view.current.fov = Math.max(0.02, Math.min(150, view.current.fov * f));
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -527,8 +638,26 @@ export function SkyView({ clock, sats, ctx, showList }: Props) {
     }
   };
 
+  const startTelescope = (id: string) => {
+    if (!loc) return;
+    setArMode(false);
+    setCamera(false);
+    setSelected(id);
+    const now = clock.now();
+    const fov = telescopeFov(id);
+    view.current.fov = fov;
+    view.current.roll = 0;
+    Object.assign(view.current, upstreamCentre(id, now, loc, sats, fov, clock.paused ? 0 : clock.rate));
+    setTelescope({ target: id, mode: 'fixed', auto: true });
+  };
+  const stopTelescope = () => {
+    setTelescope(null);
+    view.current.fov = 100;
+  };
+
   const date = clock.now();
   const upNow = useUpNow(loc, date, sats);
+  const scope = telescope && loc ? scopeInfo(telescope.target, date, loc, sats, clock, view.current.fov) : null;
   const details = selected && loc ? skyDetails(selected, date, loc, ctx) : null;
 
   return (
@@ -557,6 +686,9 @@ export function SkyView({ clock, sats, ctx, showList }: Props) {
         )}
         <button className={camera ? 'accent' : ''} onClick={() => setCamera((c) => !c)}>
           📷 Camera
+        </button>
+        <button className={telescope ? 'accent' : ''} onClick={() => (telescope ? stopTelescope() : startTelescope(selected ?? 'moon'))}>
+          🔭 Telescope
         </button>
         <button className={lines ? 'accent' : ''} onClick={() => setLines((l) => !l)} title="Constellation lines">
           ✦ Lines
@@ -634,8 +766,94 @@ export function SkyView({ clock, sats, ctx, showList }: Props) {
         </nav>
       )}
 
-      <InfoPanel details={details} onClose={() => setSelected(null)} />
-      {details && selected && (
+      <InfoPanel
+        details={telescope && window.innerWidth <= 800 ? null : details}
+        onClose={() => setSelected(null)}
+        actions={
+          selected && telescope?.target !== selected ? (
+            <button className="accent" onClick={() => startTelescope(selected)}>
+              🔭 Watch it move (telescope view)
+            </button>
+          ) : null
+        }
+      />
+      {telescope && scope && (
+        <div className="scope-hud panel">
+          <div className="scope-top">
+            <b>🔭 {scope.name}</b>
+            <div className="segmented small-seg">
+              <button className={telescope.mode === 'fixed' ? 'active' : ''} onClick={() => setTelescope({ ...telescope, mode: 'fixed' })}>
+                Hold still
+              </button>
+              <button className={telescope.mode === 'follow' ? 'active' : ''} onClick={() => setTelescope({ ...telescope, mode: 'follow' })}>
+                Follow
+              </button>
+            </div>
+            <button
+              onClick={() => Object.assign(view.current, upstreamCentre(telescope.target, clock.now(), loc!, sats, view.current.fov, clock.rate))}
+            >
+              Re-aim
+            </button>
+            <button onClick={stopTelescope} aria-label="Close telescope">
+              ✕
+            </button>
+          </div>
+          {scope.above ? (
+            <>
+              <div className="scope-speed">
+                {scope.ratePerSec > 0 ? (
+                  <>
+                    {telescope.mode === 'fixed' ? 'Drifting' : 'Tracking it as it moves'} at <b>{formatAngleRate(scope.ratePerSec)}</b>
+                    {telescope.mode === 'fixed' && <> · crosses this view in <b>{formatDuration(scope.crossSec)}</b></>}
+                  </>
+                ) : (
+                  'Time is paused: press ▶ to watch it move.'
+                )}
+              </div>
+              <div className="muted small">{scope.why}</div>
+              {scope.jumpTo && (
+                <button className="link small left" onClick={() => {
+                  clock.set(scope.jumpTo!.date);
+                  setTimeout(() => startTelescope(telescope.target), 50);
+                }}>
+                  It's low in your sky now. {scope.jumpTo.label}
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="small">
+              {scope.name} is below your horizon right now.{' '}
+              {scope.jumpTo && (
+                <button className="link" onClick={() => {
+                  clock.set(scope.jumpTo!.date);
+                  clock.setRate(1);
+                  clock.setPaused(false);
+                  setTimeout(() => startTelescope(telescope.target), 50);
+                }}>
+                  {scope.jumpTo.label}
+                </button>
+              )}
+            </div>
+          )}
+          <div className="groups scope-targets">
+            {SCOPE_TARGETS.map((t) => (
+              <button
+                key={t.id}
+                className={`chip ${telescope.target === t.id ? 'on' : ''}`}
+                disabled={t.id.startsWith('sat:') && !sats.some((s) => `sat:${s.id}` === t.id)}
+                onClick={() => startTelescope(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+            <label className="chip">
+              <input type="checkbox" checked={telescope.auto} onChange={(e) => setTelescope({ ...telescope, auto: e.target.checked })} />
+              Auto re-aim
+            </label>
+          </div>
+        </div>
+      )}
+      {details && selected && !telescope && (
         <div className="sky-howto panel small">
           🧭 {(() => {
             const row = details.rows.find(([k]) => k === 'Where to look');
@@ -855,4 +1073,136 @@ function drawGround(ctx: CanvasRenderingContext2D, project: Projector, v: View, 
   ctx.lineWidth = 1.5;
   ctx.stroke();
   ctx.restore();
+}
+
+// ------------------------------------------------------------------- telescope helpers
+
+/** Where a target is in my sky at `date` (null if unknown). */
+function targetAt(id: string, date: Date, loc: SkyLocation, sats: Satellite[]): AltAz | null {
+  if (id.startsWith('sat:')) {
+    const sat = sats.find((s) => `sat:${s.id}` === id);
+    return sat ? (satellitesInSky([sat], date, loc, -90)[0] ?? null) : null;
+  }
+  if (id.startsWith('star:')) {
+    const s = STARS[Number(id.slice(5))];
+    return s ? toAltAz(horizonRotation(date, loc), s) : null;
+  }
+  return bodiesInSky(date, loc).find((b) => b.id === id) ?? null;
+}
+
+/**
+ * Aim so the target sits a little "upstream" of the centre: it then drifts
+ * across the middle of the view instead of leaving straight away.
+ */
+function upstreamCentre(id: string, date: Date, loc: SkyLocation, sats: Satellite[], fov: number, rate: number): AltAz {
+  const t0 = targetAt(id, date, loc, sats);
+  if (!t0) return { az: 180, alt: 30 };
+  const dir = Math.sign(rate);
+  if (!dir) return { az: t0.az, alt: t0.alt };
+  const t1 = targetAt(id, new Date(date.getTime() + dir * 1000), loc, sats);
+  if (!t1) return { az: t0.az, alt: t0.alt };
+  const cosAlt = Math.max(0.05, Math.cos((t0.alt * Math.PI) / 180));
+  const dx = (((t1.az - t0.az + 540) % 360) - 180) * cosAlt;
+  const dy = t1.alt - t0.alt;
+  const len = Math.hypot(dx, dy) || 1;
+  const k = 0.15 * fov;
+  return { az: (t0.az + ((dx / len) * k) / cosAlt + 360) % 360, alt: Math.max(-5, Math.min(89.9, t0.alt + (dy / len) * k)) };
+}
+
+/** Numbers and explanations for the telescope readout. */
+function scopeInfo(id: string, date: Date, loc: SkyLocation, sats: Satellite[], clock: SimClock, fov: number) {
+  const name = id === 'sat:25544' ? 'ISS' : (SCOPE_TARGETS.find((t) => t.id === id)?.label ?? targetName(id, sats));
+  const t0 = targetAt(id, date, loc, sats);
+  const t1 = targetAt(id, new Date(date.getTime() + 1000), loc, sats);
+  const above = !!t0 && t0.alt > 0;
+  const rateMult = clock.paused ? 0 : Math.abs(clock.rate);
+  const degPerSec = t0 && t1 ? angleBetween(t0, t1) : 0;
+  const ratePerSec = degPerSec * rateMult;
+  const viewWidth = fov * (window.innerWidth / Math.max(1, window.innerHeight));
+  const crossSec = ratePerSec > 0 ? viewWidth / ratePerSec : Infinity;
+  const speedNote = rateMult !== 1 && rateMult > 0 ? ` (time is running ×${rateMult.toLocaleString()}, so motion looks ${rateMult > 1 ? 'faster' : 'slower'} than in real life)` : '';
+
+  let why = '';
+  let jumpTo: { date: Date; label: string } | undefined;
+  if (id.startsWith('sat:')) {
+    const sat = sats.find((s) => `sat:${s.id}` === id);
+    const st = sat ? propagateSat(sat, date) : null;
+    if (sat && st) {
+      why =
+        `This is the station's own speed: it circles Earth every ${Math.round(periodMinutes(sat))} minutes at ` +
+        `${st.speedKmS.toFixed(2)} km/s (${Math.round(st.speedKmS * 3600).toLocaleString()} km/h), ${Math.round(st.altKm)} km up. ` +
+        'It looks fastest when it passes high overhead, because it is closest to you then.';
+      if (!above) {
+        const passes = predictPasses(sat, date, loc, 48, 10);
+        const pass = passes.find((p) => p.visible) ?? passes[0];
+        if (pass) {
+          jumpTo = {
+            date: new Date(pass.peak.getTime() - 90_000),
+            label: `Jump to its next pass (${pass.rise.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}, ${Math.round(pass.peakAlt)}° up${pass.visible ? ', visible to the eye' : ''}) →`,
+          };
+        }
+      }
+    }
+  } else if (id === 'moon') {
+    const g0 = A.GeoMoon(date);
+    const g1 = A.GeoMoon(new Date(date.getTime() + 3_600_000));
+    const own = (Math.acos((g0.x * g1.x + g0.y * g1.y + g0.z * g1.z) / (g0.Length() * g1.Length())) * 180) / Math.PI;
+    why =
+      `Most of this is Earth spinning: the whole sky wheels past at 15° an hour. The Moon's own orbit drags it the other ` +
+      `way by ${own.toFixed(2)}° an hour, about its own width. That's why it rises roughly 50 minutes later each day.`;
+  } else if (id === 'sun') {
+    why =
+      "This is Earth spinning. Earth's yearly orbit moves the Sun only about 1° a day against the stars, too slow to see live (try 1 day/s). " +
+      'Never point a real telescope at the Sun without a proper solar filter.';
+  } else {
+    why =
+      "This is Earth spinning under the sky. The planet's own motion against the stars is far too slow to see live: it shows over days and weeks.";
+  }
+  if (t0 && t0.alt < 20 && !id.startsWith('sat:')) {
+    const body = SKY_BODY_ENUM[id];
+    if (body) {
+      const best = bestViewingTime(body, loc, date);
+      if (best) {
+        jumpTo = {
+          date: best.date,
+          label: `Jump to ${best.dark ? 'its best view in a dark sky' : 'when it is highest (daytime)'} (${best.date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}, ${Math.round(best.alt)}° up) →`,
+        };
+      }
+    }
+  }
+  return { name, above, ratePerSec, crossSec, why: why + speedNote, jumpTo };
+}
+
+const SKY_BODY_ENUM: Record<string, A.Body> = {
+  sun: A.Body.Sun, moon: A.Body.Moon, mercury: A.Body.Mercury, venus: A.Body.Venus, mars: A.Body.Mars,
+  jupiter: A.Body.Jupiter, saturn: A.Body.Saturn, uranus: A.Body.Uranus, neptune: A.Body.Neptune,
+};
+
+function targetName(id: string, sats: Satellite[]) {
+  if (id.startsWith('sat:')) return shortSatName(sats.find((s) => `sat:${s.id}` === id)?.name ?? 'Satellite');
+  if (id.startsWith('star:')) return STARS[Number(id.slice(5))]?.name || 'Star';
+  return id[0].toUpperCase() + id.slice(1);
+}
+
+/**
+ * The best moment in the next 24 h to look at a body: highest while the Sun is
+ * at least 6° down (dark enough). Falls back to its highest point in daylight.
+ */
+function bestViewingTime(body: A.Body, loc: SkyLocation, from: Date): { date: Date; alt: number; dark: boolean } | null {
+  const obs = new A.Observer(loc.lat, loc.lon, loc.heightM);
+  let dark: { date: Date; alt: number } | null = null;
+  let any: { date: Date; alt: number } | null = null;
+  for (let t = from.getTime() + 10 * 60_000; t < from.getTime() + 24 * 3_600_000; t += 10 * 60_000) {
+    const date = new Date(t);
+    const eq = A.Equator(body, date, obs, true, true);
+    const alt = A.Horizon(date, obs, eq.ra, eq.dec, 'normal').altitude;
+    if (alt < 10) continue;
+    if (!any || alt > any.alt) any = { date, alt };
+    if (body !== A.Body.Sun) {
+      const se = A.Equator(A.Body.Sun, date, obs, true, true);
+      if (A.Horizon(date, obs, se.ra, se.dec).altitude < -6 && (!dark || alt > dark.alt)) dark = { date, alt };
+    }
+  }
+  if (dark) return { ...dark, dark: true };
+  return any ? { ...any, dark: false } : null;
 }

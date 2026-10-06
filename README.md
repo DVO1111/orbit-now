@@ -30,6 +30,12 @@ forwards or backwards to watch them move.
   arrow at the screen edge guides you to whatever you picked. The **Up now** list shows planets above your horizon,
   the brightest stars, satellites overhead (and whether they're sunlit, so you can see them), and the next ISS and
   Tiangong passes. Open it directly at `#sky`.
+- **🔭 Telescope mode** (in My sky): zoom on the Moon, the ISS or a planet and watch it move in real time, like
+  looking through an undriven telescope. Everything is at its true apparent size: the Moon as a lit sphere with its
+  real surface, phase and libration, Saturn with its rings at today's tilt, Jupiter with its four big moons. **Hold
+  still** lets the target drift out of view (Earth's spin, ~15″ per second for planets, or the ISS's own 7.66 km/s);
+  **Follow** tracks it like a motorised mount. A readout gives the drift speed, how long it takes to cross the view,
+  and why it moves. If a target is down, it offers to jump to its best dark-sky moment or the ISS's next visible pass.
 - **Earth & Moon view (true scale)**: a rotating Earth, the Moon at its real distance and orientation, sunlight from
   the real Sun direction, and live satellites.
 - **Live satellites**: orbital elements (TLEs) from [CelesTrak](https://celestrak.org), propagated in the browser with
@@ -81,6 +87,7 @@ src/
     SkyView.tsx     the "My sky" section (canvas sky chart, location, AR pointing, camera)
     orientation.ts  phone compass/tilt → pointing direction
     projection.ts   stereographic sky projection
+    telescope.ts    true-size rendering (Moon sphere, Saturn's rings, Jupiter's moons, ISS) and drift maths
   components/       React UI (object list, info panel, time controls)
 scripts/
   fetch-lunar.mjs   downloads lunar orbiter trajectories from JPL Horizons

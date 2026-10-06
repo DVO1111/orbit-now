@@ -1,11 +1,14 @@
+import type { ReactNode } from 'react';
 import type { Details } from '../lib/details';
 
 interface Props {
   details: Details | null;
   onClose: () => void;
+  /** Optional buttons shown under the title. */
+  actions?: ReactNode;
 }
 
-export function InfoPanel({ details, onClose }: Props) {
+export function InfoPanel({ details, onClose, actions }: Props) {
   if (!details) return null;
   return (
     <aside className="info panel">
@@ -14,6 +17,7 @@ export function InfoPanel({ details, onClose }: Props) {
       </button>
       <h2>{details.title}</h2>
       <div className="muted subtitle">{details.subtitle}</div>
+      {actions && <div className="info-actions">{actions}</div>}
       {details.warning && <div className="warning">{details.warning}</div>}
       <dl>
         {details.rows.map(([k, v], i) => (

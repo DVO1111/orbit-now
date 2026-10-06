@@ -2,6 +2,8 @@ import * as A from 'astronomy-engine';
 import { KM_PER_AU, PLANET_BY_ID, magnitude, skyPosition, sunDistanceAU } from './planets';
 import { moonInfo } from './moon';
 import { MOON_BY_ID, moonOffsetKm, moonsOf } from './moons';
+import { moonPositionKm } from './moon';
+import { MOON_RADIUS_KM, coverage, orbitalPeriodS, orbiterState, type OrbiterDef, type OrbiterEphemeris } from './lunar';
 import { GROUP_BY_ID, periodMinutes, propagateSat, type Satellite } from './satellites';
 
 export interface Details {
@@ -53,7 +55,14 @@ function skyRows(body: A.Body, date: Date): [string, string][] {
   ];
 }
 
-export function describe(id: string, date: Date, satsById: Map<string, Satellite>): Details | null {
+export interface DescribeContext {
+  satsById: Map<string, Satellite>;
+  lunarById: Map<string, { def: OrbiterDef; eph: OrbiterEphemeris }>;
+  lunarGenerated: Date | null;
+}
+
+export function describe(id: string, date: Date, ctx: DescribeContext): Details | null {
+  const { satsById } = ctx;
   if (id === 'sun') {
     return {
       title: 'Sun',
@@ -128,6 +137,42 @@ export function describe(id: string, date: Date, satsById: Map<string, Satellite
           ? 'The orbit size, period and tilt are real, but where the moon is along its orbit is approximate.'
           : undefined,
     };
+  }
+
+  if (id.startsWith('lunar:')) {
+    const entry = ctx.lunarById.get(id.slice(6));
+    if (!entry) return null;
+    const { def, eph } = entry;
+    const st = orbiterState(eph, date);
+    const [from, to] = coverage(eph);
+    const details: Details = {
+      title: def.name,
+      subtitle: `${def.agency} · orbiting the Moon since ${def.since}`,
+      rows: [],
+      fact: def.fact,
+      note: `Positions from NASA/JPL Horizons${ctx.lunarGenerated ? `, updated ${fmt.date(ctx.lunarGenerated)}` : ''}.`,
+    };
+    if (def.fullName !== def.name) details.rows.push(['Mission', def.fullName]);
+    if (!st) {
+      details.warning = `No trajectory data for this date. Data covers ${fmt.date(from)} to ${fmt.date(to)}. Press "Now" to come back.`;
+      return details;
+    }
+    const r = Math.hypot(st.pos.x, st.pos.y, st.pos.z);
+    const speed = Math.hypot(st.vel.x, st.vel.y, st.vel.z);
+    const m = moonPositionKm(date);
+    const fromEarth = Math.hypot(m.x + st.pos.x, m.y + st.pos.y, m.z + st.pos.z);
+    const period = orbitalPeriodS(st);
+    details.rows.push(
+      ['Altitude above the Moon', `${fmt.num(r - MOON_RADIUS_KM)} km`],
+      ['Speed (relative to the Moon)', `${fmt.num(speed, 2)} km/s (${fmt.num(speed * 3600)} km/h)`],
+      ['Distance from Earth', `${fmt.num(fromEarth)} km`],
+      ['Light travel time', fmt.lightTime(fromEarth)],
+    );
+    if (period) {
+      const min = period / 60;
+      details.rows.push(['Orbital period', min < 600 ? `≈ ${fmt.num(min)} min` : `≈ ${fmt.num(min / 1440, 1)} days`]);
+    }
+    return details;
   }
 
   if (id.startsWith('sat:')) {

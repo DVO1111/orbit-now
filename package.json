@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "fetch:lunar": "node scripts/fetch-lunar.mjs"
   },
   "dependencies": {
     "astronomy-engine": "^2.1.19",

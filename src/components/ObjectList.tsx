@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { PLANETS } from '../lib/planets';
 import { moonsOf } from '../lib/moons';
+import type { OrbiterDef } from '../lib/lunar';
 import { SAT_GROUPS, type Satellite, type TleSource } from '../lib/satellites';
 
 interface Props {
@@ -11,11 +12,15 @@ interface Props {
   onToggleGroup: (id: string) => void;
   loading: boolean;
   sources: Record<string, TleSource>;
+  orbiters: OrbiterDef[];
+  lunarStatus: 'loading' | 'ok' | 'missing';
 }
 
 const MAX_RESULTS = 60;
 
-export function ObjectList({ selected, onSelect, sats, enabledGroups, onToggleGroup, loading, sources }: Props) {
+export function ObjectList({
+  selected, onSelect, sats, enabledGroups, onToggleGroup, loading, sources, orbiters, lunarStatus,
+}: Props) {
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<'bodies' | 'sats'>('bodies');
 
@@ -59,6 +64,24 @@ export function ObjectList({ selected, onSelect, sats, enabledGroups, onToggleGr
         </ul>
       ) : (
         <>
+          <div className="section-title">Orbiting the Moon</div>
+          {lunarStatus === 'ok' ? (
+            <ul className="list list-fixed">
+              {orbiters.map((o) => (
+                <li key={o.id}>
+                  <button className={selected === `lunar:${o.id}` ? 'selected' : ''} onClick={() => onSelect(`lunar:${o.id}`)}>
+                    <span className="swatch" style={{ background: o.color }} />
+                    {o.name} <span className="muted small">· {o.agency}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="muted small">
+              {lunarStatus === 'loading' ? 'Loading lunar orbiters…' : 'Lunar orbiter data is not available right now.'}
+            </div>
+          )}
+          <div className="section-title">Orbiting Earth</div>
           <div className="groups">
             {SAT_GROUPS.map((g) => (
               <label key={g.id} className="chip" style={{ borderColor: enabledGroups.has(g.id) ? g.color : undefined }}>

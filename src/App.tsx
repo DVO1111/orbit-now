@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SpaceScene, type ViewMode } from './scene/SpaceScene';
 import { SimClock } from './lib/clock';
 import { describe } from './lib/details';
+import { ORBITERS, loadLunarData, type LunarData } from './lib/lunar';
 import { SAT_GROUPS, loadGroup, mergeGroups, type Satellite, type TleSource } from './lib/satellites';
 import { TimeControls } from './components/TimeControls';
 import { InfoPanel } from './components/InfoPanel';
@@ -10,7 +11,7 @@ import { ObjectList } from './components/ObjectList';
 /** Which view an object lives in (Earth appears in both). */
 function viewFor(id: string, current: ViewMode): ViewMode {
   if (id === 'earth' || id === 'moon') return current;
-  if (id.startsWith('sat:')) return 'earth';
+  if (id.startsWith('sat:') || id.startsWith('lunar:')) return 'earth';
   return 'solar';
 }
 
@@ -29,6 +30,7 @@ export default function App() {
   const [groupData, setGroupData] = useState<Record<string, Satellite[]>>({});
   const [sources, setSources] = useState<Record<string, TleSource>>({});
   const [loading, setLoading] = useState(false);
+  const [lunarData, setLunarData] = useState<LunarData | null | undefined>(undefined);
 
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -88,6 +90,19 @@ export default function App() {
     [enabledGroups, groupData],
   );
   const satsById = useMemo(() => new Map(sats.map((s) => [s.id, s])), [sats]);
+
+  // Lunar orbiter ephemerides are fetched from JPL Horizons at build time.
+  useEffect(() => {
+    loadLunarData().then(setLunarData);
+  }, []);
+  const lunar = useMemo(() => {
+    const eph = new Map((lunarData?.craft ?? []).map((c) => [c.id, c]));
+    return ORBITERS.filter((d) => eph.has(d.id)).map((def) => ({ def, eph: eph.get(def.id)! }));
+  }, [lunarData]);
+  const lunarById = useMemo(() => new Map(lunar.map((l) => [l.def.id, l])), [lunar]);
+  useEffect(() => {
+    sceneRef.current?.setOrbiters(lunar);
+  }, [lunar]);
   const activeSources = useMemo(
     () => Object.fromEntries(Object.entries(sources).filter(([g]) => enabledGroups.has(g))),
     [sources, enabledGroups],
@@ -113,7 +128,13 @@ export default function App() {
   };
 
   const date = clock.now();
-  const details = selected ? describe(selected, date, satsById) : null;
+  const details = selected
+    ? describe(selected, date, {
+        satsById,
+        lunarById,
+        lunarGenerated: lunarData ? new Date(lunarData.generated) : null,
+      })
+    : null;
 
   return (
     <div className="app">
@@ -151,6 +172,8 @@ export default function App() {
           onToggleGroup={toggleGroup}
           loading={loading}
           sources={activeSources}
+          orbiters={lunar.map((l) => l.def)}
+          lunarStatus={lunarData === undefined ? 'loading' : lunar.length ? 'ok' : 'missing'}
         />
       )}
 

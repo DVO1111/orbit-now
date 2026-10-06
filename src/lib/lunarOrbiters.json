@@ -1,0 +1,42 @@
+[
+  {
+    "id": "lro",
+    "horizonsId": "-85",
+    "name": "LRO",
+    "fullName": "Lunar Reconnaissance Orbiter",
+    "agency": "NASA",
+    "since": 2009,
+    "color": "#38bdf8",
+    "fact": "Has mapped the Moon since 2009. Its camera has photographed the Apollo landing sites, down to the astronauts' footpaths."
+  },
+  {
+    "id": "chandrayaan2",
+    "horizonsId": "-152",
+    "name": "Chandrayaan-2",
+    "fullName": "Chandrayaan-2 Orbiter",
+    "agency": "ISRO",
+    "since": 2019,
+    "color": "#fb923c",
+    "fact": "India's orbiter kept working after its Vikram lander was lost in 2019, and it served as a communications backup for Chandrayaan-3 in 2023. Its OHRC camera (~25 cm per pixel) is the sharpest ever flown at the Moon."
+  },
+  {
+    "id": "danuri",
+    "horizonsId": "-155",
+    "name": "Danuri",
+    "fullName": "Danuri (Korea Pathfinder Lunar Orbiter)",
+    "agency": "KARI",
+    "since": 2022,
+    "color": "#a3e635",
+    "fact": "South Korea's first lunar mission. It carries NASA's ShadowCam, which images the inside of permanently shadowed polar craters by faint reflected light."
+  },
+  {
+    "id": "capstone",
+    "horizonsId": "-1176",
+    "name": "CAPSTONE",
+    "fullName": "CAPSTONE",
+    "agency": "NASA / Advanced Space",
+    "since": 2022,
+    "color": "#e879f9",
+    "fact": "A microwave-oven-sized CubeSat that pioneered the near-rectilinear halo orbit planned for NASA's Lunar Gateway. It swings from ~1,600 km to ~70,000 km above the Moon."
+  }
+]

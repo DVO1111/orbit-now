@@ -6,6 +6,7 @@ import { moonPositionKm, sunDirection } from '../lib/moon';
 import {
   MOON_BY_ID, MOONS, displayMoonDistance, displayMoonRadius, moonOffsetKm, moonsOf, planetPole, type MoonDef,
 } from '../lib/moons';
+import { orbitalPeriodS, orbiterState, coverage, type OrbiterDef, type OrbiterEphemeris } from '../lib/lunar';
 import { GROUP_BY_ID, periodMinutes, propagateSat, siderealAngle, type Satellite } from '../lib/satellites';
 
 export type ViewMode = 'solar' | 'earth';
@@ -77,6 +78,14 @@ interface PlanetSystem {
   nearDistance: number;
 }
 
+interface OrbiterView {
+  def: OrbiterDef;
+  eph: OrbiterEphemeris;
+  mesh: THREE.Mesh;
+  label: CSS2DObject;
+  orbit: THREE.Line;
+}
+
 interface ViewState {
   scene: THREE.Scene;
   labels: CSS2DRenderer;
@@ -116,6 +125,10 @@ export class SpaceScene {
   private selectedLabel!: CSS2DObject;
   private satOrbit!: THREE.Line;
   private lastOrbitUpdate = -Infinity;
+  /** Moves with the Moon; holds spacecraft in lunar orbit (Moon-centred positions). */
+  private lunarGroup!: THREE.Group;
+  private orbiters: OrbiterView[] = [];
+  private lastLunarOrbitUpdate = -Infinity;
 
   constructor(private container: HTMLElement, private cb: Callbacks) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
@@ -352,6 +365,9 @@ export class SpaceScene {
     this.satOrbit.frustumCulled = false;
     scene.add(this.satOrbit);
 
+    this.lunarGroup = new THREE.Group();
+    scene.add(this.lunarGroup);
+
     return {
       scene,
       labels: new CSS2DRenderer(),
@@ -392,6 +408,32 @@ export class SpaceScene {
     this.lastOrbitUpdate = -Infinity;
   }
 
+  setOrbiters(list: { def: OrbiterDef; eph: OrbiterEphemeris }[]) {
+    for (const o of this.orbiters) {
+      o.label.element.remove();
+      o.mesh.geometry.dispose();
+      o.orbit.geometry.dispose();
+    }
+    this.lunarGroup.clear();
+    this.orbiters = list.map(({ def, eph }) => {
+      const id = `lunar:${def.id}`;
+      const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(1, 0), new THREE.MeshBasicMaterial({ color: def.color }));
+      mesh.userData.id = id;
+      const label = this.label(def.name, id, 'label-lunar');
+      label.element.style.color = def.color;
+      label.center.set(0, 0.5); // text to the right of the marker
+      mesh.add(label);
+      const orbit = new THREE.Line(
+        new THREE.BufferGeometry(),
+        new THREE.LineBasicMaterial({ color: def.color, transparent: true, opacity: 0.35 }),
+      );
+      orbit.frustumCulled = false;
+      this.lunarGroup.add(mesh, orbit);
+      return { def, eph, mesh, label, orbit };
+    });
+    this.lastLunarOrbitUpdate = -Infinity;
+  }
+
   /** Highlight an object; with `focus`, also fly the camera to it. */
   select(id: string | null, focus = true) {
     this.selected = id;
@@ -409,6 +451,12 @@ export class SpaceScene {
     if (!pos) return;
     const size = this.objectSize(id);
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+    if (id.startsWith('lunar:')) {
+      // Look back past the craft at the Moon, slightly off-axis so the Moon isn't hidden behind the marker.
+      const out = pos.clone().sub(this.moon.position).normalize();
+      const side = new THREE.Vector3(0, 1, 0).cross(out).normalize();
+      dir.copy(out).addScaledVector(side, 0.6).addScaledVector(new THREE.Vector3(0, 1, 0), 0.3).normalize();
+    }
     if (dir.lengthSq() === 0) dir.set(0, 0.4, 1).normalize();
     this.controls.target.copy(pos);
     this.camera.position.copy(pos).addScaledVector(dir, size);
@@ -461,6 +509,12 @@ export class SpaceScene {
     if (this.view === 'earth') {
       if (id === 'earth') return EARTH_R * 5;
       if (id === 'moon') return MOON_R * 8;
+      if (id.startsWith('lunar:')) {
+        const o = this.orbiters.find((x) => `lunar:${x.def.id}` === id);
+        const st = o && orbiterState(o.eph, this.cb.getDate());
+        // Low orbiters: frame the craft with the Moon behind it. High ones: back off.
+        return st ? Math.max(2.5, Math.hypot(st.pos.x, st.pos.y, st.pos.z) * KM * 0.8) : 3;
+      }
       return 3; // satellites: ~3000 km away
     }
     const m = MOON_BY_ID.get(id);
@@ -476,6 +530,11 @@ export class SpaceScene {
     }
     if (id === 'earth') return this.earth.position.clone();
     if (id === 'moon') return this.moon.position.clone();
+    if (id.startsWith('lunar:')) {
+      const o = this.orbiters.find((x) => `lunar:${x.def.id}` === id);
+      const st = o && orbiterState(o.eph, this.cb.getDate());
+      return st ? toThree(st.pos, KM).add(this.moon.position) : null;
+    }
     if (id.startsWith('sat:')) {
       const i = this.satIndex.get(id.slice(4));
       if (i === undefined) return null;
@@ -550,15 +609,20 @@ export class SpaceScene {
       attr.needsUpdate = true;
     }
 
+    this.updateOrbiters(date, nowMs);
+
     const satId = this.selected?.startsWith('sat:') ? this.selected.slice(4) : null;
     const satIdx = satId ? this.satIndex.get(satId) : undefined;
-    const selPos = satIdx !== undefined ? this.objectPosition(this.selected!) : null;
-    if (satIdx !== undefined && selPos) {
+    const isLunar = !!this.selected?.startsWith('lunar:');
+    const selPos = satIdx !== undefined || isLunar ? this.objectPosition(this.selected!) : null;
+    if (selPos) {
       this.selectedMarker.position.copy(selPos);
       const camDist = this.camera.position.distanceTo(this.selectedMarker.position);
       this.selectedMarker.scale.setScalar(Math.max(camDist * 0.012, 0.02));
       this.selectedMarker.visible = true;
-
+      if (isLunar) this.satOrbit.visible = false;
+    }
+    if (selPos && satIdx !== undefined) {
       if (nowMs - this.lastOrbitUpdate > 500) {
         this.lastOrbitUpdate = nowMs;
         const sat = this.sats[satIdx];
@@ -573,9 +637,57 @@ export class SpaceScene {
         (this.satOrbit.material as THREE.LineBasicMaterial).color.set(GROUP_BY_ID.get(sat.group)?.color ?? '#fff');
         this.satOrbit.visible = true;
       }
-    } else {
+    } else if (!selPos) {
       this.selectedMarker.visible = false;
       this.satOrbit.visible = false;
+    }
+  }
+
+  /** True if the Moon blocks the camera's line of sight to a Moon-centred position (km). */
+  private behindMoon(posKm: Vec3): boolean {
+    const p = toThree(posKm, KM).add(this.moon.position);
+    const c = this.camera.position;
+    const d = p.clone().sub(c);
+    const t = this.moon.position.clone().sub(c).dot(d) / d.lengthSq();
+    if (t <= 0 || t >= 1) return false;
+    return c.clone().addScaledVector(d, t).distanceTo(this.moon.position) < MOON_R * 0.99;
+  }
+
+  private updateOrbiters(date: Date, nowMs: number) {
+    this.lunarGroup.position.copy(this.moon.position);
+    // Names and orbit paths only near the Moon (or for the selected craft), to avoid a pile-up of labels.
+    const nearMoon = this.camera.position.distanceTo(this.moon.position) < 80;
+    const refresh = nowMs - this.lastLunarOrbitUpdate > 1000;
+    if (refresh) this.lastLunarOrbitUpdate = nowMs;
+    const world = new THREE.Vector3();
+
+    for (const o of this.orbiters) {
+      const selected = this.selected === `lunar:${o.def.id}`;
+      const st = orbiterState(o.eph, date);
+      o.mesh.visible = !!st;
+      o.label.visible = !!st && (nearMoon || selected);
+      if (st && o.label.visible && this.behindMoon(st.pos)) o.label.visible = false;
+      o.orbit.visible = !!st && (nearMoon || selected);
+      if (!st) continue;
+      toThree(st.pos, KM, o.mesh.position);
+      world.copy(o.mesh.position).add(this.lunarGroup.position);
+      o.mesh.scale.setScalar(Math.max(this.camera.position.distanceTo(world) * 0.006, 0.004));
+
+      if (refresh) {
+        // One orbit centred on now (capped at 2 days for very long orbits), clipped to the data we have.
+        const span = Math.min((orbitalPeriodS(st) ?? 7200) * 1000, 8 * 86_400_000);
+        const [c0, c1] = coverage(o.eph);
+        const t0 = Math.max(date.getTime() - span / 2, c0.getTime());
+        const t1 = Math.min(date.getTime() + span / 2, c1.getTime());
+        const pts: THREE.Vector3[] = [];
+        for (let i = 0; i <= 240; i++) {
+          const s = orbiterState(o.eph, new Date(t0 + (i / 240) * (t1 - t0)));
+          if (s) pts.push(toThree(s.pos, KM));
+        }
+        o.orbit.geometry.dispose();
+        o.orbit.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+        (o.orbit.material as THREE.LineBasicMaterial).opacity = selected ? 0.9 : 0.35;
+      }
     }
   }
 
@@ -612,7 +724,9 @@ export class SpaceScene {
     }
 
     const meshes =
-      this.view === 'solar' ? [...this.solarObjects.values()] : [this.earth, this.moon];
+      this.view === 'solar'
+        ? [...this.solarObjects.values()]
+        : [this.earth, this.moon, ...this.orbiters.filter((o) => o.mesh.visible).map((o) => o.mesh)];
     const hit = this.raycaster.intersectObjects(meshes, false)[0];
     if (hit?.object.userData.id) this.cb.onSelect(hit.object.userData.id);
   };

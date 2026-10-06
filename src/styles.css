@@ -51,6 +51,7 @@ select option { background: #0b1020; }
 }
 .label:hover { background: rgba(125, 211, 252, 0.35); }
 .label-sun { color: #ffd166; }
+.label-lunar { margin-left: 10px; font-size: 11px; font-weight: 600; background: rgba(2, 6, 23, 0.6); }
 .label-moon { font-size: 11px; color: #cbd5e1; background: rgba(2, 6, 23, 0.4); }
 .label-sat { transform: translateY(-14px); color: #fff; font-weight: 600; }
 .label-sat:empty { display: none; }
@@ -90,6 +91,8 @@ select option { background: #0b1020; }
 .tabs button { flex: 1; font-size: 13px; }
 .tabs button.active { border-color: var(--accent); color: var(--accent); }
 .badge { font-size: 11px; color: var(--muted); margin-left: 4px; }
+.section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 2px; }
+.list-fixed { flex: none; }
 .list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
 .list button {
   width: 100%; text-align: left; border: 0; background: transparent;

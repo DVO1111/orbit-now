@@ -14,6 +14,10 @@ forwards or backwards to watch them move.
   in the planet's real equatorial plane, along with Saturn's rings at their real tilt. Earth's Moon and Jupiter's
   four big moons are at their computed positions. For the others, the orbit's size, period and tilt are real, but
   where each moon is along its orbit is approximate.
+- **Lunar orbiters**: LRO (NASA), Chandrayaan-2 (ISRO), Danuri (KARI) and CAPSTONE, shown around the Moon with
+  their orbits, altitude, speed and period. Trajectories come from [NASA/JPL Horizons](https://ssd.jpl.nasa.gov/horizons/).
+  Horizons can't be called from a browser, so the build fetches them (`npm run fetch:lunar`), and CI rebuilds the site
+  every day. A spacecraft Horizons has no data for is simply left out.
 - **Earth & Moon view (true scale)**: a rotating Earth, the Moon at its real distance and orientation, sunlight from
   the real Sun direction, and live satellites.
 - **Live satellites**: orbital elements (TLEs) from [CelesTrak](https://celestrak.org), propagated in the browser with
@@ -31,6 +35,7 @@ forwards or backwards to watch them move.
 
 ```bash
 npm install
+npm run fetch:lunar   # optional: download lunar orbiter trajectories into public/
 npm run dev       # http://localhost:5173
 npm test          # unit tests (orbital maths sanity checks)
 npm run build     # production build in dist/
@@ -51,12 +56,17 @@ src/
     moon.ts         Moon position, phase, Sun direction
     moons.ts        planetary moon catalogue, positions and display scaling
     satellites.ts   CelesTrak fetching/caching, TLE parsing, SGP4 propagation
+    lunar.ts        lunar orbiter catalogue (lunarOrbiters.json) and trajectory interpolation
     details.ts      text shown in the info panel
     clock.ts        simulation clock (pause / speed / jump)
   scene/
     SpaceScene.ts   three.js renderer for both views, picking, camera follow
   components/       React UI (object list, info panel, time controls)
+scripts/
+  fetch-lunar.mjs   downloads lunar orbiter trajectories from JPL Horizons
 ```
+
+To add another lunar spacecraft, add an entry with its Horizons ID to `src/lib/lunarOrbiters.json`.
 
 ## Accuracy notes
 
@@ -64,11 +74,13 @@ src/
   degree for thousands of years either side of today.
 - Satellite positions are only as fresh as their TLEs. They are accurate to a few km near the element epoch and get
   worse over days to weeks. The app warns you when the time shown is far from the epoch.
+- Lunar orbiter positions are interpolated from 10-minute JPL Horizons samples, so they are accurate to well under
+  1 km. The data covers 2 days before to 6 days after each daily build; outside that window the spacecraft are hidden.
 - In the solar-system view the sizes and distances are *not to scale*. The Earth & Moon view is true scale.
 
 ## Ideas / roadmap
 
-- Spacecraft in lunar orbit and deep space (LRO, Artemis, JWST, Voyagers) via JPL Horizons ephemerides
+- Deep-space spacecraft (JWST, Voyagers, Artemis missions) via JPL Horizons
 - "What's overhead?": use your location for ISS pass predictions and planet rise/set times
 - Exact positions for Saturn, Uranus, Neptune and Mars moons (e.g. from JPL mean elements or Horizons)
 - Dwarf planets, comets and asteroids

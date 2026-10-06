@@ -7,6 +7,7 @@ import { SAT_GROUPS, loadGroup, mergeGroups, type Satellite, type TleSource } fr
 import { TimeControls } from './components/TimeControls';
 import { InfoPanel } from './components/InfoPanel';
 import { ObjectList } from './components/ObjectList';
+import { SkyView } from './sky/SkyView';
 
 /** Which view an object lives in (Earth appears in both). */
 function viewFor(id: string, current: ViewMode): ViewMode {
@@ -23,6 +24,8 @@ export default function App() {
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
   const [view, setView] = useState<ViewMode>('solar');
+  // 'sky' is the location-anchored "My sky" section; 'space' holds the two 3D views.
+  const [section, setSection] = useState<'space' | 'sky'>(() => (window.location.hash === '#sky' ? 'sky' : 'space'));
   const [selected, setSelected] = useState<string | null>(null);
   const [showList, setShowList] = useState(() => window.innerWidth > 800);
 
@@ -129,24 +132,32 @@ export default function App() {
       return next;
     });
 
+  useEffect(() => {
+    sceneRef.current?.setActive(section === 'space');
+    const hash = section === 'sky' ? '#sky' : '';
+    if (window.location.hash !== hash) history.replaceState(null, '', hash || window.location.pathname + window.location.search);
+  }, [section]);
+
   const switchView = (v: ViewMode) => {
+    setSection('space');
     sceneRef.current?.setView(v);
     setView(v);
     if (selected && viewFor(selected, v) !== v) select(null);
   };
 
   const date = clock.now();
-  const details = selected
-    ? describe(selected, date, {
-        satsById,
-        lunarById,
-        lunarGenerated: lunarData ? new Date(lunarData.generated) : null,
-      })
-    : null;
+  const describeCtx = {
+    satsById,
+    lunarById,
+    lunarGenerated: lunarData ? new Date(lunarData.generated) : null,
+  };
+  const details = selected ? describe(selected, date, describeCtx) : null;
+  const inSky = section === 'sky';
 
   return (
     <div className="app">
-      <div className="viewport" ref={mountRef} />
+      <div className={`viewport ${inSky ? 'hidden' : ''}`} ref={mountRef} />
+      {inSky && <SkyView clock={clock} sats={sats} ctx={describeCtx} showList={showList} />}
 
       <header className="topbar panel">
         <button className="icon" onClick={() => setShowList((s) => !s)} aria-label="Toggle object list">
@@ -156,19 +167,24 @@ export default function App() {
           Orbit<span>Now</span>
         </h1>
         <div className="segmented" role="tablist">
-          <button className={view === 'solar' ? 'active' : ''} onClick={() => switchView('solar')}>
+          <button className={!inSky && view === 'solar' ? 'active' : ''} onClick={() => switchView('solar')}>
             Solar<span className="wide-only"> system</span>
           </button>
-          <button className={view === 'earth' ? 'active' : ''} onClick={() => switchView('earth')}>
+          <button className={!inSky && view === 'earth' ? 'active' : ''} onClick={() => switchView('earth')}>
             Earth<span className="wide-only"> &amp; Moon</span>
           </button>
+          <button className={inSky ? 'active' : ''} onClick={() => setSection('sky')}>
+            My sky
+          </button>
         </div>
-        <button className="icon" onClick={() => sceneRef.current?.resetCamera()} aria-label="Reset camera" title="Reset camera">
-          ⟲
-        </button>
+        {!inSky && (
+          <button className="icon" onClick={() => sceneRef.current?.resetCamera()} aria-label="Reset camera" title="Reset camera">
+            ⟲
+          </button>
+        )}
       </header>
 
-      {showList && (
+      {showList && !inSky && (
         <ObjectList
           selected={selected}
           onSelect={(id) => {
@@ -186,12 +202,14 @@ export default function App() {
         />
       )}
 
-      <InfoPanel details={details} onClose={() => select(null)} />
+      {!inSky && <InfoPanel details={details} onClose={() => select(null)} />}
 
       <TimeControls clock={clock} date={date} onChange={refresh} />
 
       <div className="hint muted small">
-        {view === 'solar'
+        {inSky
+          ? 'Your sky from where you stand. Drag to look around · scroll or pinch to zoom · tap anything to identify it.'
+          : view === 'solar'
           ? 'Distances compressed & planets enlarged so everything fits. Drag to orbit · scroll to zoom · click a body.'
           : 'True scale (1 unit = 1000 km). Satellites from CelesTrak, propagated with SGP4. Click a dot to identify it.'}
       </div>

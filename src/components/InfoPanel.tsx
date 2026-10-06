@@ -16,8 +16,8 @@ export function InfoPanel({ details, onClose }: Props) {
       <div className="muted subtitle">{details.subtitle}</div>
       {details.warning && <div className="warning">{details.warning}</div>}
       <dl>
-        {details.rows.map(([k, v]) => (
-          <div key={k} className="row">
+        {details.rows.map(([k, v], i) => (
+          <div key={`${k}-${i}`} className="row">
             <dt>{k}</dt>
             <dd>{v}</dd>
           </div>

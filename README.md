@@ -23,6 +23,13 @@ forwards or backwards to watch them move.
 - **Chang'e landing sites**: Chang'e 3, 4, 5 and 6 marked on the Moon, which is oriented with the IAU rotation model
   (libration included), so far-side sites really are on the far side. China doesn't publish orbit data for its
   lunar spacecraft (such as the Queqiao relays), so JPL has none and they aren't shown in orbit.
+- **My sky (location-anchored)**: your actual sky from where you stand, like Flightradar24's AR view but for the
+  heavens. ~2,850 naked-eye stars with constellation figures, the Sun, Moon (with phase) and planets, and every loaded
+  satellite, all for your exact location and time. Tap anything to identify it and get "face east-southeast and look
+  34° up". On phones, **Point at sky** follows your compass and tilt (with an optional **camera** overlay), and an
+  arrow at the screen edge guides you to whatever you picked. The **Up now** list shows planets above your horizon,
+  the brightest stars, satellites overhead (and whether they're sunlit, so you can see them), and the next ISS and
+  Tiangong passes. Open it directly at `#sky`.
 - **Earth & Moon view (true scale)**: a rotating Earth, the Moon at its real distance and orientation, sunlight from
   the real Sun direction, and live satellites.
 - **Live satellites**: orbital elements (TLEs) from [CelesTrak](https://celestrak.org), propagated in the browser with
@@ -67,6 +74,13 @@ src/
     clock.ts        simulation clock (pause / speed / jump)
   scene/
     SpaceScene.ts   three.js renderer for both views, picking, camera follow
+  lib/sky/
+    sky.ts          horizon coordinates for stars, planets and satellites; pass prediction
+    skyData.json    star catalogue (mag ≤ 5.5) and constellation lines
+  sky/
+    SkyView.tsx     the "My sky" section (canvas sky chart, location, AR pointing, camera)
+    orientation.ts  phone compass/tilt → pointing direction
+    projection.ts   stereographic sky projection
   components/       React UI (object list, info panel, time controls)
 scripts/
   fetch-lunar.mjs   downloads lunar orbiter trajectories from JPL Horizons
@@ -83,19 +97,23 @@ a `window`). To find an ID, run the **Look up spacecraft in JPL Horizons** workf
   worse over days to weeks. The app warns you when the time shown is far from the epoch.
 - Lunar orbiter positions are interpolated from 10-minute JPL Horizons samples, so they are accurate to well under
   1 km. The data covers 2 days before to 6 days after each daily build; outside that window the spacecraft are hidden.
+- In My sky, star and planet positions agree with Astronomy Engine's full topocentric calculation to within 0.02°
+  (checked by tests), including atmospheric refraction. Phone pointing is only as good as the phone's compass:
+  wave it in a figure 8 to calibrate, and keep away from metal.
 - In the solar-system view the sizes and distances are *not to scale*. The Earth & Moon view is true scale.
 
 ## Ideas / roadmap
 
 - Deep-space spacecraft (JWST, Voyagers) via JPL Horizons
-- "What's overhead?": use your location for ISS pass predictions and planet rise/set times
 - Exact positions for Saturn, Uranus, Neptune and Mars moons (e.g. from JPL mean elements or Horizons)
 - Dwarf planets, comets and asteroids
 - Planet textures and an optional true-scale toggle
 
 ## Credits
 
-Satellite data: [CelesTrak](https://celestrak.org) (Dr. T.S. Kelso). Earth and Moon textures: from the
+Satellite data: [CelesTrak](https://celestrak.org) (Dr. T.S. Kelso). Star catalogue and constellation lines: from
+[d3-celestial](https://github.com/ofrohn/d3-celestial) © 2015 Olaf Frohn (BSD-3-Clause), based on the Yale Bright
+Star and Hipparcos catalogues. Earth and Moon textures: from the
 [three.js](https://threejs.org) examples. Ephemerides: [Astronomy Engine](https://github.com/cosinekitty/astronomy).
 
 MIT licensed.

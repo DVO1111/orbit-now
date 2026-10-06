@@ -111,6 +111,7 @@ export class SpaceScene {
   private followLast: THREE.Vector3 | null = null;
   private pointerDown: { x: number; y: number } | null = null;
   private resizeObserver: ResizeObserver;
+  private active = true;
 
   // Solar view
   private solarObjects = new Map<string, THREE.Object3D>();
@@ -399,6 +400,12 @@ export class SpaceScene {
 
   // ---------------------------------------------------------------- public API
 
+  /** Pause rendering while another section (e.g. My sky) is on screen. */
+  setActive(active: boolean) {
+    this.active = active;
+    if (active) this.resize();
+  }
+
   setView(view: ViewMode) {
     if (view === this.view) return;
     const cur = this.views[this.view];
@@ -599,6 +606,7 @@ export class SpaceScene {
 
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
+    if (!this.active) return;
     const date = this.cb.getDate();
     if (this.view === 'solar') this.updateSolar(date);
     else this.updateEarth(date);

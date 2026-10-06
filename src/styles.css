@@ -148,6 +148,40 @@ select option { background: #0b1020; }
 
 .hint { position: absolute; bottom: 10px; left: 0; right: 0; text-align: center; pointer-events: none; padding: 0 12px; }
 
+
+/* My sky */
+.viewport.hidden { visibility: hidden; }
+.sky { position: absolute; inset: 0; background: #02030a; }
+.sky-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.sky-canvas:active { cursor: grabbing; }
+.sky-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+.sky-video.on { display: block; }
+.sky-loc {
+  top: 72px; left: 50%; transform: translateX(-50%);
+  padding: 6px 12px; font-size: 13px; white-space: nowrap; z-index: 1;
+}
+.sky-centre { top: 116px; left: 50%; transform: translateX(-50%); padding: 6px 12px; font-size: 14px; white-space: nowrap; }
+.sky-msg { top: 158px; left: 50%; transform: translateX(-50%); padding: 6px 12px; max-width: min(420px, calc(100% - 24px)); text-align: center; cursor: pointer; }
+.sky-howto { bottom: 112px; left: 50%; transform: translateX(-50%); padding: 6px 12px; white-space: nowrap; color: #bae6fd; }
+.sky-tools { position: absolute; right: 12px; bottom: 112px; display: flex; flex-direction: column; gap: 6px; }
+.sky-tools button { background: var(--panel); backdrop-filter: blur(10px); font-size: 13px; text-align: left; }
+.sky-tools button.accent { background: var(--accent); color: #04121c; }
+.sky-list { overflow-y: auto; }
+.sky-list .list-plain button { font-size: 13px; }
+.sky-tip { margin: 8px 4px 0; line-height: 1.4; }
+.sky-picker-wrap {
+  position: absolute; inset: 0; display: grid; place-items: center; background: rgba(2, 3, 10, 0.55); z-index: 5; padding: 16px;
+}
+.sky-picker { position: relative; width: min(440px, 100%); padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.sky-picker h2 { margin: 0; font-size: 20px; }
+.sky-picker p { margin: 0; }
+.sky-picker .groups .chip { background: rgba(255, 255, 255, 0.06); }
+.sky-status { color: var(--warn); }
+.sky-manual { display: flex; gap: 6px; }
+.sky-manual input { flex: 1; min-width: 0; }
+button.wide { width: 100%; padding: 10px; }
+button.link { border: 0; background: none; color: var(--accent); text-decoration: underline; align-self: center; }
+
 @media (max-width: 800px) {
   .topbar { gap: 8px; }
   .topbar h1 { font-size: 15px; }
@@ -160,4 +194,9 @@ select option { background: #0b1020; }
   .time-readout { min-width: 0; }
   .time-buttons input[type='datetime-local'] { flex: 1; min-width: 0; }
   .hint { display: none; }
+  .sky-tools { bottom: 160px; }
+  .sky-tools button { padding: 6px 8px; font-size: 12px; }
+  .sky-howto { display: none; } /* the info panel already says where to look */
+  .sky-centre { top: 112px; }
+  .objects ~ .sky-loc { display: none; }
 }

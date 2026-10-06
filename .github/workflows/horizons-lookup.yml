@@ -37,7 +37,7 @@ jobs:
             console.log(`\n=== "${term}": ${body.count ?? 0} match(es) ${body.message ?? body.error ?? ''}`);
             if (!body.result) {
               // Fallback: Horizons's own name search lists matching bodies with their IDs.
-              const q = `format=json&COMMAND='${term.replace(/'/g, '')}'&OBJ_DATA=NO&MAKE_EPHEM=NO`;
+              const q = `format=json&COMMAND='${term.replace(/'/g, '')}'&OBJ_DATA=YES&MAKE_EPHEM=NO`;
               const res = await (await fetch(`https://ssd.jpl.nasa.gov/api/horizons.api?${encodeURI(q)}`)).json().catch(() => ({}));
               console.log(String(res.result ?? res.error ?? 'no response').split('\n').filter((l) => l.trim()).slice(-40).join('\n'));
             }

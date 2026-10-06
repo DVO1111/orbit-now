@@ -1,6 +1,7 @@
 import * as A from 'astronomy-engine';
 import { KM_PER_AU, PLANET_BY_ID, magnitude, skyPosition, sunDistanceAU } from './planets';
 import { moonInfo } from './moon';
+import { MOON_BY_ID, moonOffsetKm, moonsOf } from './moons';
 import { GROUP_BY_ID, periodMinutes, propagateSat, type Satellite } from './satellites';
 
 export interface Details {
@@ -9,6 +10,7 @@ export interface Details {
   rows: [string, string][];
   fact?: string;
   warning?: string;
+  note?: string;
 }
 
 const LIGHT_KM_S = 299_792.458;
@@ -96,7 +98,36 @@ export function describe(id: string, date: Date, satsById: Map<string, Satellite
       ['Year length', planet.periodDays < 1000 ? `${fmt.num(planet.periodDays, 1)} days` : `${fmt.num(planet.periodDays / 365.25, 1)} years`],
       ['Known moons', String(planet.moons)],
     );
+    const shown = moonsOf(planet.id).map((m) => m.name);
+    if (shown.length) rows.push(['Moons shown', shown.join(', ')]);
     return { title: planet.name, subtitle: 'Planet', rows, fact: planet.fact };
+  }
+
+  const moon = MOON_BY_ID.get(id);
+  if (moon) {
+    const parent = PLANET_BY_ID.get(moon.parent)!;
+    const off = moonOffsetKm(moon, date);
+    const fromPlanet = Math.hypot(off.x, off.y, off.z);
+    // Earth distance: planet's geocentric vector (rotated to the ecliptic) plus the moon's offset.
+    const g = A.RotateVector(A.Rotation_EQJ_ECL(), A.GeoVector(parent.body, date, true));
+    const fromEarth = Math.hypot(g.x * KM_PER_AU + off.x, g.y * KM_PER_AU + off.y, g.z * KM_PER_AU + off.z);
+    const period = moon.periodDays < 2 ? `${fmt.num(moon.periodDays * 24, 1)} hours` : `${fmt.num(moon.periodDays, 2)} days`;
+    return {
+      title: moon.name,
+      subtitle: `Moon of ${parent.name}`,
+      rows: [
+        [`Distance from ${parent.name}`, `${fmt.num(fromPlanet)} km (${fmt.num(fromPlanet / parent.radiusKm, 1)} ${parent.name} radii)`],
+        ['Distance from Earth', `${fmt.num(fromEarth / KM_PER_AU, 3)} AU · ${fmt.num(fromEarth / 1e6, 1)} million km`],
+        ['Light travel time', fmt.lightTime(fromEarth)],
+        ['Orbital period', `${period}${moon.retrograde ? ' (retrograde)' : ''}`],
+        ['Radius', `${fmt.num(moon.radiusKm, moon.radiusKm < 100 ? 1 : 0)} km`],
+      ],
+      fact: moon.fact,
+      note:
+        moon.model === 'circular'
+          ? 'The orbit size, period and tilt are real, but where the moon is along its orbit is approximate.'
+          : undefined,
+    };
   }
 
   if (id.startsWith('sat:')) {

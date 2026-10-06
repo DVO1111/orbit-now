@@ -9,6 +9,11 @@ forwards or backwards to watch them move.
 - **Solar system view**: the Sun and all eight planets at their real current positions, computed with
   [Astronomy Engine](https://github.com/cosinekitty/astronomy) (accurate to about an arcminute). Orbits are drawn as
   well. Distances are compressed and planets enlarged so everything fits on one screen.
+- **Planetary moons**: 21 major moons, including the Moon, Phobos and Deimos, Jupiter's Galilean moons, Titan and
+  Saturn's other big moons, Uranus's five major moons, and Triton. Zoom in on a planet to see its moon system drawn
+  in the planet's real equatorial plane, along with Saturn's rings at their real tilt. Earth's Moon and Jupiter's
+  four big moons are at their computed positions. For the others, the orbit's size, period and tilt are real, but
+  where each moon is along its orbit is approximate.
 - **Earth & Moon view (true scale)**: a rotating Earth, the Moon at its real distance and orientation, sunlight from
   the real Sun direction, and live satellites.
 - **Live satellites**: orbital elements (TLEs) from [CelesTrak](https://celestrak.org), propagated in the browser with
@@ -44,6 +49,7 @@ src/
   lib/
     planets.ts      planet catalogue, heliocentric positions, sky coordinates
     moon.ts         Moon position, phase, Sun direction
+    moons.ts        planetary moon catalogue, positions and display scaling
     satellites.ts   CelesTrak fetching/caching, TLE parsing, SGP4 propagation
     details.ts      text shown in the info panel
     clock.ts        simulation clock (pause / speed / jump)
@@ -64,7 +70,8 @@ src/
 
 - Spacecraft in lunar orbit and deep space (LRO, Artemis, JWST, Voyagers) via JPL Horizons ephemerides
 - "What's overhead?": use your location for ISS pass predictions and planet rise/set times
-- Dwarf planets, major moons of Jupiter and Saturn, comets and asteroids
+- Exact positions for Saturn, Uranus, Neptune and Mars moons (e.g. from JPL mean elements or Horizons)
+- Dwarf planets, comets and asteroids
 - Planet textures and an optional true-scale toggle
 
 ## Credits

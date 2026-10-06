@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { PLANETS } from '../lib/planets';
+import { moonsOf } from '../lib/moons';
 import { SAT_GROUPS, type Satellite, type TleSource } from '../lib/satellites';
 
 interface Props {
@@ -39,14 +40,22 @@ export function ObjectList({ selected, onSelect, sats, enabledGroups, onToggleGr
 
       {tab === 'bodies' ? (
         <ul className="list">
-          {[{ id: 'sun', name: 'Sun', color: '#ffcc55' }, ...PLANETS, { id: 'moon', name: 'Moon', color: '#cbd5e1' }].map((b) => (
+          {[{ id: 'sun', name: 'Sun', color: '#ffcc55' }, ...PLANETS].flatMap((b) => [
             <li key={b.id}>
               <button className={selected === b.id ? 'selected' : ''} onClick={() => onSelect(b.id)}>
                 <span className="swatch" style={{ background: b.color }} />
                 {b.name}
               </button>
-            </li>
-          ))}
+            </li>,
+            ...moonsOf(b.id).map((m) => (
+              <li key={m.id} className="sub">
+                <button className={selected === m.id ? 'selected' : ''} onClick={() => onSelect(m.id)}>
+                  <span className="swatch" style={{ background: m.color }} />
+                  {m.name}
+                </button>
+              </li>
+            )),
+          ])}
         </ul>
       ) : (
         <>

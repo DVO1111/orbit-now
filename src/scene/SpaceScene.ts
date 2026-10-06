@@ -3,6 +3,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { PLANETS, compressVec, helioEcliptic, orbitPath, type Vec3 } from '../lib/planets';
 import { moonPositionKm, sunDirection } from '../lib/moon';
+import {
+  MOON_BY_ID, MOONS, displayMoonDistance, displayMoonRadius, moonOffsetKm, moonsOf, planetPole, type MoonDef,
+} from '../lib/moons';
 import { GROUP_BY_ID, periodMinutes, propagateSat, siderealAngle, type Satellite } from '../lib/satellites';
 
 export type ViewMode = 'solar' | 'earth';
@@ -58,6 +61,22 @@ function dotTexture(): THREE.Texture {
   return new THREE.CanvasTexture(c);
 }
 
+/** Display position of a moon relative to its planet in the compressed solar view. */
+function moonDisplayPos(m: MoonDef, date: Date, out = new THREE.Vector3()): THREE.Vector3 {
+  const v = moonOffsetKm(m, date);
+  const r = Math.hypot(v.x, v.y, v.z);
+  return toThree(v, displayMoonDistance(m.parent, r) / r, out);
+}
+
+interface PlanetSystem {
+  group: THREE.Group;
+  mesh: THREE.Mesh;
+  /** Moon orbit lines; only shown when the camera is near the planet. */
+  moonLayer: THREE.Group;
+  moonLabels: CSS2DObject[];
+  nearDistance: number;
+}
+
 interface ViewState {
   scene: THREE.Scene;
   labels: CSS2DRenderer;
@@ -82,6 +101,7 @@ export class SpaceScene {
 
   // Solar view
   private solarObjects = new Map<string, THREE.Object3D>();
+  private planetSystems = new Map<string, PlanetSystem>();
 
   // Earth view
   private earth!: THREE.Mesh;
@@ -171,19 +191,61 @@ export class SpaceScene {
         new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.9 }),
       );
       mesh.userData.id = p.id;
-      if (p.id === 'saturn') {
-        const ring = new THREE.Mesh(
-          new THREE.RingGeometry(p.displayRadius * 1.3, p.displayRadius * 2.3, 64),
-          new THREE.MeshBasicMaterial({ color: 0xd9c89a, side: THREE.DoubleSide, transparent: true, opacity: 0.6 }),
-        );
-        ring.rotation.x = -Math.PI / 2 + THREE.MathUtils.degToRad(26.7);
-        mesh.add(ring);
-      }
       const lbl = this.label(p.name, p.id);
       lbl.position.set(0, p.displayRadius + 0.6, 0);
       mesh.add(lbl);
-      scene.add(mesh);
+
+      // The group holds the planet plus anything that must not spin with it (rings, moons).
+      const group = new THREE.Group();
+      group.add(mesh);
+      scene.add(group);
       this.solarObjects.set(p.id, mesh);
+
+      if (p.id === 'saturn') {
+        // Main rings span ~1.24–2.27 Saturn radii, drawn on the same scale as the moons.
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(
+            displayMoonDistance('saturn', 1.24 * p.radiusKm),
+            displayMoonDistance('saturn', 2.27 * p.radiusKm),
+            96,
+          ),
+          new THREE.MeshBasicMaterial({ color: 0xd9c89a, side: THREE.DoubleSide, transparent: true, opacity: 0.55 }),
+        );
+        ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), toThree(planetPole('saturn', now)));
+        group.add(ring);
+      }
+
+      const moonLayer = new THREE.Group();
+      group.add(moonLayer);
+      const moonLabels: CSS2DObject[] = [];
+      const moons = moonsOf(p.id);
+      for (const m of moons) {
+        const r = displayMoonRadius(m);
+        const moonMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(r, 20, 10),
+          new THREE.MeshStandardMaterial({ color: m.color, roughness: 1 }),
+        );
+        moonMesh.userData.id = m.id;
+        const ml = this.label(m.name, m.id, 'label-moon');
+        ml.position.set(0, r + 0.15, 0);
+        moonMesh.add(ml);
+        moonLabels.push(ml);
+        group.add(moonMesh);
+        this.solarObjects.set(m.id, moonMesh);
+
+        const pts: THREE.Vector3[] = [];
+        for (let i = 0; i <= 128; i++) {
+          pts.push(moonDisplayPos(m, new Date(now.getTime() + (i / 128) * m.periodDays * 86_400_000)));
+        }
+        moonLayer.add(
+          new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(pts),
+            new THREE.LineBasicMaterial({ color: m.color, transparent: true, opacity: 0.3 }),
+          ),
+        );
+      }
+      const extent = moons.length ? Math.max(...moons.map((m) => displayMoonDistance(p.id, m.aKm))) : p.displayRadius;
+      this.planetSystems.set(p.id, { group, mesh, moonLayer, moonLabels, nearDistance: extent * 12 });
 
       const path = orbitPath(p.body, p.periodDays, now, 256).map((v) => toThree(compressVec(v)));
       const line = new THREE.Line(
@@ -401,6 +463,8 @@ export class SpaceScene {
       if (id === 'moon') return MOON_R * 8;
       return 3; // satellites: ~3000 km away
     }
+    const m = MOON_BY_ID.get(id);
+    if (m) return Math.max(displayMoonRadius(m) * 25, 2);
     const p = PLANETS.find((x) => x.id === id);
     return p ? p.displayRadius * 25 : 10;
   }
@@ -408,7 +472,7 @@ export class SpaceScene {
   private objectPosition(id: string): THREE.Vector3 | null {
     if (this.view === 'solar') {
       const o = this.solarObjects.get(id);
-      return o ? o.position.clone() : null;
+      return o ? o.getWorldPosition(new THREE.Vector3()) : null;
     }
     if (id === 'earth') return this.earth.position.clone();
     if (id === 'moon') return this.moon.position.clone();
@@ -446,10 +510,15 @@ export class SpaceScene {
 
   private updateSolar(date: Date) {
     for (const p of PLANETS) {
-      const mesh = this.solarObjects.get(p.id)!;
-      toThree(compressVec(helioEcliptic(p.body, date)), 1, mesh.position);
-      mesh.rotation.y = ((date.getTime() / 86_400_000) * 2 * Math.PI) % (2 * Math.PI);
+      const sys = this.planetSystems.get(p.id)!;
+      toThree(compressVec(helioEcliptic(p.body, date)), 1, sys.group.position);
+      sys.mesh.rotation.y = ((date.getTime() / 86_400_000) * 2 * Math.PI) % (2 * Math.PI);
+      // Moon names and orbits only when zoomed in on this planet, to keep the overview clean.
+      const near = this.camera.position.distanceTo(sys.group.position) < sys.nearDistance;
+      sys.moonLayer.visible = near;
+      for (const l of sys.moonLabels) l.visible = near;
     }
+    for (const m of MOONS) moonDisplayPos(m, date, this.solarObjects.get(m.id)!.position);
   }
 
   private updateEarth(date: Date) {

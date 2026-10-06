@@ -9,8 +9,8 @@ import { ObjectList } from './components/ObjectList';
 
 /** Which view an object lives in (Earth appears in both). */
 function viewFor(id: string, current: ViewMode): ViewMode {
-  if (id === 'earth') return current;
-  if (id === 'moon' || id.startsWith('sat:')) return 'earth';
+  if (id === 'earth' || id === 'moon') return current;
+  if (id.startsWith('sat:')) return 'earth';
   return 'solar';
 }
 

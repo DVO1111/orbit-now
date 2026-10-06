@@ -24,6 +24,7 @@ export function InfoPanel({ details, onClose }: Props) {
         ))}
       </dl>
       {details.fact && <p className="fact">💡 {details.fact}</p>}
+      {details.note && <p className="muted small note">ⓘ {details.note}</p>}
     </aside>
   );
 }

@@ -30,9 +30,17 @@ jobs:
           const now = Date.now();
           const fmt = (ms) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
           for (const term of terms) {
-            const url = `https://ssd-api.jpl.nasa.gov/api/horizons_lookup.api?sstr=${encodeURIComponent(term)}&group=sct`;
-            const body = await (await fetch(url)).json().catch((e) => ({ error: String(e) }));
+            const url = `https://ssd.jpl.nasa.gov/api/horizons_lookup.api?sstr=${encodeURIComponent(term)}&group=sct`;
+            const raw = await (await fetch(url)).text();
+            let body;
+            try { body = JSON.parse(raw); } catch { body = { error: raw.slice(0, 120).replace(/\s+/g, ' ') }; }
             console.log(`\n=== "${term}": ${body.count ?? 0} match(es) ${body.message ?? body.error ?? ''}`);
+            if (!body.result) {
+              // Fallback: Horizons's own name search lists matching bodies with their IDs.
+              const q = `format=json&COMMAND='${term.replace(/'/g, '')}'&OBJ_DATA=NO&MAKE_EPHEM=NO`;
+              const res = await (await fetch(`https://ssd.jpl.nasa.gov/api/horizons.api?${encodeURI(q)}`)).json().catch(() => ({}));
+              console.log(String(res.result ?? res.error ?? 'no response').split('\n').filter((l) => l.trim()).slice(-40).join('\n'));
+            }
             for (const r of body.result ?? []) {
               const id = r.spkid;
               const q = `format=json&COMMAND='${id}'&OBJ_DATA=NO&MAKE_EPHEM=YES&EPHEM_TYPE=VECTORS&CENTER='500@301'` +

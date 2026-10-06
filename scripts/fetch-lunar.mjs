@@ -39,8 +39,11 @@ for (const def of catalogue) {
       if (times[i] - times[i - 1] !== stepMs) throw new Error(`non-uniform step at row ${i}`);
     }
     craft.push({ id: def.id, start: times[0], stepMs, states: packStates(states) });
+    // Altitude range as a sanity check on units and centre (LRO should be roughly 20–200 km).
+    const alts = states.map(([x, y, z]) => Math.hypot(x, y, z) - 1737.4);
     console.log(
-      `✓ ${def.name.padEnd(16)} ${times.length} states  ${new Date(times[0]).toISOString()} → ${new Date(times.at(-1)).toISOString()}`,
+      `✓ ${def.name.padEnd(16)} ${times.length} states  ${new Date(times[0]).toISOString()} → ${new Date(times.at(-1)).toISOString()}` +
+        `  altitude ${Math.round(Math.min(...alts))}–${Math.round(Math.max(...alts))} km`,
     );
   } catch (e) {
     errors.push({ id: def.id, error: String(e.message).slice(0, 300) });

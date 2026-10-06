@@ -1,0 +1,53 @@
+name: Look up spacecraft in JPL Horizons
+
+# Manual helper for finding Horizons IDs before adding a spacecraft to
+# src/lib/lunarOrbiters.json. For each search term it lists matching
+# spacecraft, then checks whether each one has Moon-centred data right now.
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: Comma-separated search terms (e.g. "artemis, chang'e")
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  lookup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Search Horizons
+        env:
+          QUERY: ${{ inputs.query }}
+        run: |
+          node --input-type=module <<'EOF'
+          const terms = process.env.QUERY.split(',').map((t) => t.trim()).filter(Boolean);
+          const now = Date.now();
+          const fmt = (ms) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
+          for (const term of terms) {
+            const url = `https://ssd-api.jpl.nasa.gov/api/horizons_lookup.api?sstr=${encodeURIComponent(term)}&group=sct`;
+            const body = await (await fetch(url)).json().catch((e) => ({ error: String(e) }));
+            console.log(`\n=== "${term}": ${body.count ?? 0} match(es) ${body.message ?? body.error ?? ''}`);
+            for (const r of body.result ?? []) {
+              const id = r.spkid;
+              const q = `format=json&COMMAND='${id}'&OBJ_DATA=NO&MAKE_EPHEM=YES&EPHEM_TYPE=VECTORS&CENTER='500@301'` +
+                `&TIME_TYPE=UT&START_TIME='${fmt(now)}'&STOP_TIME='${fmt(now + 3_600_000)}'&STEP_SIZE='60m'&VEC_TABLE=1&CSV_FORMAT=YES`;
+              const res = await (await fetch(`https://ssd.jpl.nasa.gov/api/horizons.api?${encodeURI(q)}`)).json().catch(() => ({}));
+              const text = res.result ?? res.error ?? '';
+              let status;
+              const soe = text.indexOf('$$SOE');
+              if (soe >= 0) {
+                const [x, y, z] = text.slice(soe + 5).trim().split('\n')[0].split(',').slice(2, 5).map(Number);
+                status = `HAS DATA NOW, ${Math.round(Math.hypot(x, y, z) - 1737.4).toLocaleString()} km above the Moon`;
+              } else {
+                status = (text.match(/No ephemeris[^\n]*/) ?? [text.split('\n').filter(Boolean).slice(-1)[0] ?? 'no response'])[0];
+              }
+              console.log(`${String(id).padEnd(10)} ${String(r.name).padEnd(40)} ${(r.alias ?? []).join(', ').slice(0, 40).padEnd(40)} ${status}`);
+            }
+          }
+          EOF

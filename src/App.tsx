@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SpaceScene, type ViewMode } from './scene/SpaceScene';
 import { SimClock } from './lib/clock';
 import { describe } from './lib/details';
-import { ORBITERS, loadLunarData, type LunarData } from './lib/lunar';
+import { ORBITERS, closestApproach, loadLunarData, orbiterState, type LunarData } from './lib/lunar';
 import { SAT_GROUPS, loadGroup, mergeGroups, type Satellite, type TleSource } from './lib/satellites';
 import { TimeControls } from './components/TimeControls';
 import { InfoPanel } from './components/InfoPanel';
@@ -11,7 +11,7 @@ import { ObjectList } from './components/ObjectList';
 /** Which view an object lives in (Earth appears in both). */
 function viewFor(id: string, current: ViewMode): ViewMode {
   if (id === 'earth' || id === 'moon') return current;
-  if (id.startsWith('sat:') || id.startsWith('lunar:')) return 'earth';
+  if (id.startsWith('sat:') || id.startsWith('lunar:') || id.startsWith('site:')) return 'earth';
   return 'solar';
 }
 
@@ -36,6 +36,12 @@ export default function App() {
   viewRef.current = view;
 
   const select = useCallback((id: string | null) => {
+    // Picking a past mission (e.g. Artemis) jumps the clock to its closest pass of the Moon.
+    const entry = id?.startsWith('lunar:') ? lunarByIdRef.current.get(id.slice(6)) : undefined;
+    if (entry?.def.kind === 'mission' && !orbiterState(entry.eph, clock.now())) {
+      clock.set(new Date(closestApproach(entry.eph).date.getTime() - 3 * 3_600_000));
+      if (clock.rate === 1) clock.setRate(600); // 10 min/s, so the flyby plays out visibly
+    }
     setSelected(id);
     const scene = sceneRef.current;
     if (!scene) return;
@@ -47,7 +53,7 @@ export default function App() {
       }
     }
     scene.select(id);
-  }, []);
+  }, [clock]);
 
   // Create the 3D scene once.
   useEffect(() => {
@@ -100,6 +106,8 @@ export default function App() {
     return ORBITERS.filter((d) => eph.has(d.id)).map((def) => ({ def, eph: eph.get(def.id)! }));
   }, [lunarData]);
   const lunarById = useMemo(() => new Map(lunar.map((l) => [l.def.id, l])), [lunar]);
+  const lunarByIdRef = useRef(lunarById);
+  lunarByIdRef.current = lunarById;
   useEffect(() => {
     sceneRef.current?.setOrbiters(lunar);
   }, [lunar]);
@@ -173,6 +181,7 @@ export default function App() {
           loading={loading}
           sources={activeSources}
           orbiters={lunar.map((l) => l.def)}
+          missionDates={Object.fromEntries(lunar.map((l) => [l.def.id, new Date(l.eph.start)]))}
           lunarStatus={lunarData === undefined ? 'loading' : lunar.length ? 'ok' : 'missing'}
         />
       )}

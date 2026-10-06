@@ -88,3 +88,21 @@ describe('satellites', () => {
     expect(parseTle('hello\nworld', 'x')).toEqual([]);
   });
 });
+
+describe('moon orientation', () => {
+  it('keeps the near side facing Earth (sub-Earth point within libration limits)', async () => {
+    const { moonBodyAxes } = await import('./moon');
+    for (let d = 0; d < 30; d += 3) {
+      const date = new Date(DATE.getTime() + d * 86_400_000);
+      const m = moonPositionKm(date);
+      const r = Math.hypot(m.x, m.y, m.z);
+      const toEarth = { x: -m.x / r, y: -m.y / r, z: -m.z / r };
+      const ax = moonBodyAxes(date);
+      const dot = (a: typeof toEarth) => a.x * toEarth.x + a.y * toEarth.y + a.z * toEarth.z;
+      const lon = (Math.atan2(dot(ax.y), dot(ax.x)) * 180) / Math.PI;
+      const lat = (Math.asin(dot(ax.z)) * 180) / Math.PI;
+      expect(Math.abs(lon)).toBeLessThan(9); // libration in longitude ≤ ~8°
+      expect(Math.abs(lat)).toBeLessThan(8); // libration in latitude ≤ ~7°
+    }
+  });
+});

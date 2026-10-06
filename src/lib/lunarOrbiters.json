@@ -7,7 +7,8 @@
     "agency": "NASA",
     "since": 2009,
     "color": "#38bdf8",
-    "fact": "Has mapped the Moon since 2009. Its camera has photographed the Apollo landing sites, down to the astronauts' footpaths."
+    "fact": "Has mapped the Moon since 2009. Its camera has photographed the Apollo landing sites, down to the astronauts' footpaths.",
+    "kind": "orbiter"
   },
   {
     "id": "chandrayaan2",
@@ -17,7 +18,8 @@
     "agency": "ISRO",
     "since": 2019,
     "color": "#fb923c",
-    "fact": "India's orbiter kept working after its Vikram lander was lost in 2019, and it served as a communications backup for Chandrayaan-3 in 2023. Its OHRC camera (~25 cm per pixel) is the sharpest ever flown at the Moon."
+    "fact": "India's orbiter kept working after its Vikram lander was lost in 2019, and it served as a communications backup for Chandrayaan-3 in 2023. Its OHRC camera (~25 cm per pixel) is the sharpest ever flown at the Moon.",
+    "kind": "orbiter"
   },
   {
     "id": "danuri",
@@ -27,7 +29,8 @@
     "agency": "KARI",
     "since": 2022,
     "color": "#a3e635",
-    "fact": "South Korea's first lunar mission. It carries NASA's ShadowCam, which images the inside of permanently shadowed polar craters by faint reflected light."
+    "fact": "South Korea's first lunar mission. It carries NASA's ShadowCam, which images the inside of permanently shadowed polar craters by faint reflected light.",
+    "kind": "orbiter"
   },
   {
     "id": "capstone",
@@ -37,6 +40,37 @@
     "agency": "NASA / Advanced Space",
     "since": 2022,
     "color": "#e879f9",
-    "fact": "A microwave-oven-sized CubeSat that pioneered the near-rectilinear halo orbit planned for NASA's Lunar Gateway. It swings from ~1,600 km to ~70,000 km above the Moon."
+    "fact": "A microwave-oven-sized CubeSat that pioneered the near-rectilinear halo orbit planned for NASA's Lunar Gateway. It swings from ~1,600 km to ~70,000 km above the Moon.",
+    "kind": "orbiter"
+  },
+  {
+    "id": "artemis1",
+    "horizonsId": "-1023",
+    "name": "Artemis I",
+    "fullName": "Artemis I (Orion)",
+    "agency": "NASA",
+    "since": 2022,
+    "color": "#f97316",
+    "kind": "mission",
+    "window": {
+      "start": "2022-11-16T00:00:00Z",
+      "stop": "2022-12-11T17:00:00Z"
+    },
+    "fact": "Uncrewed test flight of NASA's Orion capsule. It flew about 130 km above the lunar surface and went 432,210 km from Earth, farther than any spacecraft built to carry people had ever been."
+  },
+  {
+    "id": "artemis2",
+    "horizonsId": "-1024",
+    "name": "Artemis II",
+    "fullName": "Artemis II (Orion \"Integrity\")",
+    "agency": "NASA",
+    "since": 2026,
+    "color": "#facc15",
+    "kind": "mission",
+    "window": {
+      "start": "2026-03-25T00:00:00Z",
+      "stop": "2026-04-10T23:30:00Z"
+    },
+    "fact": "Reid Wiseman, Victor Glover, Christina Koch and Jeremy Hansen flew around the Moon aboard Orion \"Integrity\", the first crewed lunar flight since Apollo 17 in 1972."
   }
 ]

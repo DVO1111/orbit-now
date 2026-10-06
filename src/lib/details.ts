@@ -3,7 +3,8 @@ import { KM_PER_AU, PLANET_BY_ID, magnitude, skyPosition, sunDistanceAU } from '
 import { moonInfo } from './moon';
 import { MOON_BY_ID, moonOffsetKm, moonsOf } from './moons';
 import { moonPositionKm } from './moon';
-import { MOON_RADIUS_KM, coverage, orbitalPeriodS, orbiterState, type OrbiterDef, type OrbiterEphemeris } from './lunar';
+import { SITE_BY_ID } from './landingSites';
+import { MOON_RADIUS_KM, closestApproach, coverage, orbitalPeriodS, orbiterState, type OrbiterDef, type OrbiterEphemeris } from './lunar';
 import { GROUP_BY_ID, periodMinutes, propagateSat, type Satellite } from './satellites';
 
 export interface Details {
@@ -139,23 +140,53 @@ export function describe(id: string, date: Date, ctx: DescribeContext): Details 
     };
   }
 
+  if (id.startsWith('site:')) {
+    const site = SITE_BY_ID.get(id.slice(5));
+    if (!site) return null;
+    const landed = new Date(site.landed + 'T00:00:00Z');
+    return {
+      title: site.name,
+      subtitle: `${site.agency} lunar lander · ${site.region}`,
+      rows: [
+        ['Landed', landed.toLocaleDateString(undefined, { dateStyle: 'long', timeZone: 'UTC' })],
+        ['Location', `${Math.abs(site.lat).toFixed(2)}° ${site.lat >= 0 ? 'N' : 'S'}, ${Math.abs(site.lon).toFixed(2)}° ${site.lon >= 0 ? 'E' : 'W'}`],
+        ['Side of the Moon', Math.abs(site.lon) > 90 ? 'Far side (never visible from Earth)' : 'Near side'],
+      ],
+      fact: site.fact,
+      note: "China doesn't publish orbit data for its lunar spacecraft (such as the Queqiao relay satellites), so only landing sites are shown.",
+    };
+  }
+
   if (id.startsWith('lunar:')) {
     const entry = ctx.lunarById.get(id.slice(6));
     if (!entry) return null;
     const { def, eph } = entry;
     const st = orbiterState(eph, date);
     const [from, to] = coverage(eph);
+    const mission = def.kind === 'mission';
+    const month = (d: Date) => d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     const details: Details = {
       title: def.name,
-      subtitle: `${def.agency} · orbiting the Moon since ${def.since}`,
+      subtitle: mission ? `${def.agency} · lunar flight, ${month(from)}` : `${def.agency} · orbiting the Moon since ${def.since}`,
       rows: [],
       fact: def.fact,
       note: `Positions from NASA/JPL Horizons${ctx.lunarGenerated ? `, updated ${fmt.date(ctx.lunarGenerated)}` : ''}.`,
     };
     if (def.fullName !== def.name) details.rows.push(['Mission', def.fullName]);
+    const ca = closestApproach(eph);
+    if (mission) {
+      details.rows.push(['Closest to the Moon', `${fmt.num(ca.distanceKm - MOON_RADIUS_KM)} km up, ${fmt.date(ca.date)}`]);
+    }
     if (!st) {
-      details.warning = `No trajectory data for this date. Data covers ${fmt.date(from)} to ${fmt.date(to)}. Press "Now" to come back.`;
+      details.warning = mission
+        ? `This flight ran from ${fmt.date(from)} to ${fmt.date(to)}. Select it in the list to jump there.`
+        : `No trajectory data for this date. Data covers ${fmt.date(from)} to ${fmt.date(to)}. Press "Now" to come back.`;
       return details;
+    }
+    if (mission) {
+      const day = Math.floor((date.getTime() - from.getTime()) / 86_400_000) + 1;
+      const total = Math.ceil((to.getTime() - from.getTime()) / 86_400_000);
+      details.rows.unshift(['Flight day', `${day} of ${total}`]);
     }
     const r = Math.hypot(st.pos.x, st.pos.y, st.pos.z);
     const speed = Math.hypot(st.vel.x, st.vel.y, st.vel.z);
@@ -168,7 +199,7 @@ export function describe(id: string, date: Date, ctx: DescribeContext): Details 
       ['Distance from Earth', `${fmt.num(fromEarth)} km`],
       ['Light travel time', fmt.lightTime(fromEarth)],
     );
-    if (period) {
+    if (period && !mission) {
       const min = period / 60;
       details.rows.push(['Orbital period', min < 600 ? `≈ ${fmt.num(min)} min` : `≈ ${fmt.num(min / 1440, 1)} days`]);
     }

@@ -18,6 +18,11 @@ forwards or backwards to watch them move.
   their orbits, altitude, speed and period. Trajectories come from [NASA/JPL Horizons](https://ssd.jpl.nasa.gov/horizons/).
   Horizons can't be called from a browser, so the build fetches them (`npm run fetch:lunar`), and CI rebuilds the site
   every day. A spacecraft Horizons has no data for is simply left out.
+- **Artemis replays**: Artemis I (2022) and Artemis II (2026, crewed) with their full Earth–Moon flight paths from
+  JPL Horizons. Pick one in the **Moon** tab and the time machine jumps to its lunar flyby.
+- **Chang'e landing sites**: Chang'e 3, 4, 5 and 6 marked on the Moon, which is oriented with the IAU rotation model
+  (libration included), so far-side sites really are on the far side. China doesn't publish orbit data for its
+  lunar spacecraft (such as the Queqiao relays), so JPL has none and they aren't shown in orbit.
 - **Earth & Moon view (true scale)**: a rotating Earth, the Moon at its real distance and orientation, sunlight from
   the real Sun direction, and live satellites.
 - **Live satellites**: orbital elements (TLEs) from [CelesTrak](https://celestrak.org), propagated in the browser with
@@ -56,7 +61,8 @@ src/
     moon.ts         Moon position, phase, Sun direction
     moons.ts        planetary moon catalogue, positions and display scaling
     satellites.ts   CelesTrak fetching/caching, TLE parsing, SGP4 propagation
-    lunar.ts        lunar orbiter catalogue (lunarOrbiters.json) and trajectory interpolation
+    lunar.ts        lunar orbiter / mission catalogue (lunarOrbiters.json) and trajectory interpolation
+    landingSites.ts Chang'e landing sites
     details.ts      text shown in the info panel
     clock.ts        simulation clock (pause / speed / jump)
   scene/
@@ -66,7 +72,8 @@ scripts/
   fetch-lunar.mjs   downloads lunar orbiter trajectories from JPL Horizons
 ```
 
-To add another lunar spacecraft, add an entry with its Horizons ID to `src/lib/lunarOrbiters.json`.
+To add another lunar spacecraft, add an entry with its Horizons ID to `src/lib/lunarOrbiters.json` (give past missions
+a `window`). To find an ID, run the **Look up spacecraft in JPL Horizons** workflow from the Actions tab.
 
 ## Accuracy notes
 
@@ -80,7 +87,7 @@ To add another lunar spacecraft, add an entry with its Horizons ID to `src/lib/l
 
 ## Ideas / roadmap
 
-- Deep-space spacecraft (JWST, Voyagers, Artemis missions) via JPL Horizons
+- Deep-space spacecraft (JWST, Voyagers) via JPL Horizons
 - "What's overhead?": use your location for ISS pass predictions and planet rise/set times
 - Exact positions for Saturn, Uranus, Neptune and Mars moons (e.g. from JPL mean elements or Horizons)
 - Dwarf planets, comets and asteroids

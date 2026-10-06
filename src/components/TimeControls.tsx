@@ -6,6 +6,7 @@ const RATES: { label: string; rate: number }[] = [
   { label: '−1 h/s', rate: -3_600 },
   { label: 'Real time', rate: 1 },
   { label: '1 min/s', rate: 60 },
+  { label: '10 min/s', rate: 600 },
   { label: '1 h/s', rate: 3_600 },
   { label: '1 day/s', rate: 86_400 },
   { label: '1 wk/s', rate: 604_800 },

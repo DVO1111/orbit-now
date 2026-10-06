@@ -92,14 +92,15 @@ select option { background: #0b1020; }
 .tabs button.active { border-color: var(--accent); color: var(--accent); }
 .badge { font-size: 11px; color: var(--muted); margin-left: 4px; }
 .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 2px; }
-.list-fixed { flex: none; }
+.list-plain { list-style: none; margin: 0 0 8px; padding: 0; }
+.list .section-title { margin: 6px 8px 2px; }
 .list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
-.list button {
+.list button, .list-plain button {
   width: 100%; text-align: left; border: 0; background: transparent;
   display: flex; align-items: center; gap: 8px; padding: 6px 8px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.list button.selected { background: rgba(125, 211, 252, 0.18); }
+.list button.selected, .list-plain button.selected { background: rgba(125, 211, 252, 0.18); }
 .list li.small { padding: 6px 8px; }
 .list .sub button { padding: 3px 8px 3px 28px; font-size: 13px; color: #cbd5e1; }
 .list .sub .swatch { width: 7px; height: 7px; }

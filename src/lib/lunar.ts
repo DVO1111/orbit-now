@@ -10,9 +10,13 @@ export interface OrbiterDef {
   since: number;
   color: string;
   fact: string;
+  /** 'orbiter': in lunar orbit now. 'mission': a past flight that can be replayed. */
+  kind: 'orbiter' | 'mission';
+  /** Flight window fetched for past missions (ISO dates). */
+  window?: { start: string; stop: string };
 }
 
-export const ORBITERS: OrbiterDef[] = catalogue;
+export const ORBITERS = catalogue as OrbiterDef[];
 export const ORBITER_BY_ID = new Map(ORBITERS.map((o) => [o.id, o]));
 
 export const MOON_RADIUS_KM = 1737.4;
@@ -96,6 +100,20 @@ export function orbiterState(eph: OrbiterEphemeris, date: Date): OrbiterState | 
     v[k] = (d00 * p0 + d01 * p1) / h + d10 * v0 + d11 * v1;
   }
   return { pos: { x: p[0], y: p[1], z: p[2] }, vel: { x: v[0], y: v[1], z: v[2] } };
+}
+
+/** Moment of closest approach to the Moon in the data (used to jump to a mission's highlight). */
+export function closestApproach(eph: OrbiterEphemeris): { date: Date; distanceKm: number } {
+  let best = 0;
+  let bestR = Infinity;
+  for (let i = 0; i < eph.states.length / 6; i++) {
+    const r = Math.hypot(eph.states[i * 6], eph.states[i * 6 + 1], eph.states[i * 6 + 2]);
+    if (r < bestR) {
+      bestR = r;
+      best = i;
+    }
+  }
+  return { date: new Date(eph.start + best * eph.stepMs), distanceKm: bestR };
 }
 
 /** Two-body orbital period around the Moon in seconds, or null if not bound. */

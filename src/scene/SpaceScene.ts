@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { PLANETS, compressVec, helioEcliptic, orbitPath, type Vec3 } from '../lib/planets';
-import { moonPositionKm, sunDirection } from '../lib/moon';
+import { moonBodyAxes, moonPositionKm, sunDirection } from '../lib/moon';
+import { LANDING_SITES, siteBodyVector } from '../lib/landingSites';
 import {
   MOON_BY_ID, MOONS, displayMoonDistance, displayMoonRadius, moonOffsetKm, moonsOf, planetPole, type MoonDef,
 } from '../lib/moons';
@@ -83,7 +84,10 @@ interface OrbiterView {
   eph: OrbiterEphemeris;
   mesh: THREE.Mesh;
   label: CSS2DObject;
+  /** Moon-centred orbit trace (orbiters). */
   orbit: THREE.Line;
+  /** Earth-centred full flight path (past missions such as Artemis). */
+  path: THREE.Line | null;
 }
 
 interface ViewState {
@@ -129,6 +133,7 @@ export class SpaceScene {
   private lunarGroup!: THREE.Group;
   private orbiters: OrbiterView[] = [];
   private lastLunarOrbitUpdate = -Infinity;
+  private siteMarkers: { id: string; mesh: THREE.Mesh; label: CSS2DObject }[] = [];
 
   constructor(private container: HTMLElement, private cb: Callbacks) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
@@ -322,6 +327,20 @@ export class SpaceScene {
     this.moon.add(moonLabel);
     scene.add(this.moon);
 
+    // Lander sites, fixed to the Moon's surface. Mesh-local axes: +X = lon 0°, +Y = north, −Z = lon 90° E.
+    for (const site of LANDING_SITES) {
+      const b = siteBodyVector(site);
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 6), new THREE.MeshBasicMaterial({ color: site.color }));
+      mesh.position.set(b.x, b.z, -b.y).multiplyScalar(MOON_R * 1.002);
+      mesh.userData.id = `site:${site.id}`;
+      const label = this.label(site.name, `site:${site.id}`, 'label-lunar');
+      label.element.style.color = site.color;
+      label.center.set(0, 0.5);
+      mesh.add(label);
+      this.moon.add(mesh);
+      this.siteMarkers.push({ id: `site:${site.id}`, mesh, label });
+    }
+
     // Moon's orbit, sampled over one sidereal month.
     const now = Date.now();
     const pts: THREE.Vector3[] = [];
@@ -413,6 +432,10 @@ export class SpaceScene {
       o.label.element.remove();
       o.mesh.geometry.dispose();
       o.orbit.geometry.dispose();
+      if (o.path) {
+        o.path.removeFromParent();
+        o.path.geometry.dispose();
+      }
     }
     this.lunarGroup.clear();
     this.orbiters = list.map(({ def, eph }) => {
@@ -429,7 +452,26 @@ export class SpaceScene {
       );
       orbit.frustumCulled = false;
       this.lunarGroup.add(mesh, orbit);
-      return { def, eph, mesh, label, orbit };
+
+      let path: THREE.Line | null = null;
+      if (def.kind === 'mission') {
+        // Whole flight in Earth-centred coordinates: Moon position + Moon-relative offset, every 30 min.
+        const pts: THREE.Vector3[] = [];
+        const [c0, c1] = coverage(eph);
+        for (let t = c0.getTime(); t <= c1.getTime(); t += 30 * 60_000) {
+          const st = orbiterState(eph, new Date(t));
+          if (!st) continue;
+          const m = moonPositionKm(new Date(t));
+          pts.push(toThree({ x: m.x + st.pos.x, y: m.y + st.pos.y, z: m.z + st.pos.z }, KM));
+        }
+        path = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(pts),
+          new THREE.LineBasicMaterial({ color: def.color, transparent: true, opacity: 0.55 }),
+        );
+        path.frustumCulled = false;
+        this.views.earth.scene.add(path);
+      }
+      return { def, eph, mesh, label, orbit, path };
     });
     this.lastLunarOrbitUpdate = -Infinity;
   }
@@ -451,7 +493,10 @@ export class SpaceScene {
     if (!pos) return;
     const size = this.objectSize(id);
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
-    if (id.startsWith('lunar:')) {
+    if (id.startsWith('site:')) {
+      // Look straight down at the site from above the lunar surface (far-side sites included).
+      dir.copy(pos).sub(this.moon.position).normalize().addScaledVector(new THREE.Vector3(0, 1, 0), 0.2).normalize();
+    } else if (id.startsWith('lunar:') && this.orbiters.find((x) => `lunar:${x.def.id}` === id)?.def.kind === 'orbiter') {
       // Look back past the craft at the Moon, slightly off-axis so the Moon isn't hidden behind the marker.
       const out = pos.clone().sub(this.moon.position).normalize();
       const side = new THREE.Vector3(0, 1, 0).cross(out).normalize();
@@ -509,11 +554,16 @@ export class SpaceScene {
     if (this.view === 'earth') {
       if (id === 'earth') return EARTH_R * 5;
       if (id === 'moon') return MOON_R * 8;
+      if (id.startsWith('site:')) return MOON_R * 2.5;
       if (id.startsWith('lunar:')) {
         const o = this.orbiters.find((x) => `lunar:${x.def.id}` === id);
         const st = o && orbiterState(o.eph, this.cb.getDate());
+        if (!st) return 3;
+        const rKm = Math.hypot(st.pos.x, st.pos.y, st.pos.z);
+        // Missions far from the Moon: pull back to see the Earth–Moon path.
+        if (o.def.kind === 'mission') return rKm > 30_000 ? 250 : 25;
         // Low orbiters: frame the craft with the Moon behind it. High ones: back off.
-        return st ? Math.max(2.5, Math.hypot(st.pos.x, st.pos.y, st.pos.z) * KM * 0.8) : 3;
+        return Math.max(2.5, rKm * KM * 0.8);
       }
       return 3; // satellites: ~3000 km away
     }
@@ -530,6 +580,9 @@ export class SpaceScene {
     }
     if (id === 'earth') return this.earth.position.clone();
     if (id === 'moon') return this.moon.position.clone();
+    if (id.startsWith('site:')) {
+      return this.siteMarkers.find((m) => m.id === id)?.mesh.getWorldPosition(new THREE.Vector3()) ?? null;
+    }
     if (id.startsWith('lunar:')) {
       const o = this.orbiters.find((x) => `lunar:${x.def.id}` === id);
       const st = o && orbiterState(o.eph, this.cb.getDate());
@@ -585,8 +638,19 @@ export class SpaceScene {
     this.earth.rotation.y = siderealAngle(date);
 
     toThree(moonPositionKm(date), KM, this.moon.position);
-    this.moon.lookAt(0, 0, 0);
-    this.moon.rotateY(-Math.PI / 2); // keep the near side facing Earth
+    // IAU orientation, including libration. Mesh +X/+Y/+Z = body lon 0° / north pole / lon 90° W.
+    const ax = moonBodyAxes(date);
+    const neg = (v: Vec3) => ({ x: -v.x, y: -v.y, z: -v.z });
+    this.moon.quaternion.setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(toThree(ax.x), toThree(ax.z), toThree(neg(ax.y))),
+    );
+
+    const nearMoon = this.camera.position.distanceTo(this.moon.position) < 80;
+    const w = new THREE.Vector3();
+    for (const m of this.siteMarkers) {
+      m.mesh.getWorldPosition(w);
+      m.label.visible = (nearMoon || this.selected === m.id) && !this.behindMoonWorld(w);
+    }
 
     const sun = toThree(sunDirection(date));
     this.sunLight.position.copy(sun.multiplyScalar(1000));
@@ -645,7 +709,10 @@ export class SpaceScene {
 
   /** True if the Moon blocks the camera's line of sight to a Moon-centred position (km). */
   private behindMoon(posKm: Vec3): boolean {
-    const p = toThree(posKm, KM).add(this.moon.position);
+    return this.behindMoonWorld(toThree(posKm, KM).add(this.moon.position));
+  }
+
+  private behindMoonWorld(p: THREE.Vector3): boolean {
     const c = this.camera.position;
     const d = p.clone().sub(c);
     const t = this.moon.position.clone().sub(c).dot(d) / d.lengthSq();
@@ -664,16 +731,22 @@ export class SpaceScene {
     for (const o of this.orbiters) {
       const selected = this.selected === `lunar:${o.def.id}`;
       const st = orbiterState(o.eph, date);
+      const mission = o.def.kind === 'mission';
       o.mesh.visible = !!st;
-      o.label.visible = !!st && (nearMoon || selected);
+      // Missions travel between Earth and Moon, so always label them while in flight.
+      o.label.visible = !!st && (nearMoon || selected || mission);
       if (st && o.label.visible && this.behindMoon(st.pos)) o.label.visible = false;
-      o.orbit.visible = !!st && (nearMoon || selected);
+      o.orbit.visible = !!st && !mission && (nearMoon || selected);
+      if (o.path) {
+        o.path.visible = !!st || selected;
+        (o.path.material as THREE.LineBasicMaterial).opacity = selected ? 0.9 : 0.5;
+      }
       if (!st) continue;
       toThree(st.pos, KM, o.mesh.position);
       world.copy(o.mesh.position).add(this.lunarGroup.position);
       o.mesh.scale.setScalar(Math.max(this.camera.position.distanceTo(world) * 0.006, 0.004));
 
-      if (refresh) {
+      if (refresh && !mission) {
         // One orbit centred on now (capped at 2 days for very long orbits), clipped to the data we have.
         const span = Math.min((orbitalPeriodS(st) ?? 7200) * 1000, 8 * 86_400_000);
         const [c0, c1] = coverage(o.eph);
@@ -726,7 +799,7 @@ export class SpaceScene {
     const meshes =
       this.view === 'solar'
         ? [...this.solarObjects.values()]
-        : [this.earth, this.moon, ...this.orbiters.filter((o) => o.mesh.visible).map((o) => o.mesh)];
+        : [this.earth, this.moon, ...this.siteMarkers.map((m) => m.mesh), ...this.orbiters.filter((o) => o.mesh.visible).map((o) => o.mesh)];
     const hit = this.raycaster.intersectObjects(meshes, false)[0];
     if (hit?.object.userData.id) this.cb.onSelect(hit.object.userData.id);
   };

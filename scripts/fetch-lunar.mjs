@@ -33,7 +33,11 @@ const craft = [];
 const errors = [];
 for (const def of catalogue) {
   try {
-    const { times, states } = await fetchLunarVectors(def.horizonsId, start, stop, STEP_MIN);
+    // Past missions (e.g. Artemis) use their own flight window; orbiters use a window around today.
+    const [s0, s1] = def.window
+      ? [Date.parse(def.window.start), Date.parse(def.window.stop)].map((t) => Math.round(t / stepMs) * stepMs)
+      : [start, stop];
+    const { times, states } = await fetchLunarVectors(def.horizonsId, s0, s1, STEP_MIN);
     // The app interpolates on a uniform grid, so insist on one.
     for (let i = 1; i < times.length; i++) {
       if (times[i] - times[i - 1] !== stepMs) throw new Error(`non-uniform step at row ${i}`);
